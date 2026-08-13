@@ -1608,6 +1608,17 @@
 
 		// Inserts the given (valid) HTML into the range position (with range content deleted),
 		// guarantee it's result to be a valid DOM tree.
+		// 判断 range 起点（分割点/光标位置）是否位于数据元内部
+		function rangeStartInsideDatasource( range ) {
+			var startContainer = range && range.startContainer;
+			if ( startContainer && typeof startContainer.getAscendant === 'function' ) {
+				return !!startContainer.getAscendant( function( el ) {
+					return el.getAttribute && el.getAttribute( 'data-hm-node' );
+				}, true );
+			}
+			return false;
+		}
+
 		function insert( editable, type, data, range ) {
 			var editor = editable.editor,
 				dontFilter = false;
@@ -1722,9 +1733,16 @@
 
 			// Split inline elements so HTML will be inserted with its own styles.
 			path = range.startPath();
-		
+
 			var node = path.contains( isInline, false, 1 );
-			if (node && !(node.hasClass("new-textbox") || node.hasClass("new-textbox-content"))) {
+			// 数据元边界保护：仅当分割点（光标位置）位于数据元（data-hm-node）内部时不做分割。
+			// 分割（extractContents）若跨越 contenteditable=false 的数据元，会把数据元"撑开"、
+			// 破坏数据元边界（俗称"分割数据元"）。例如"签名"cell 被 <span style="font-size:14px;"> 包住、
+			// 光标落在数据元内容区内时。
+			// 分割点在数据元外部时保持 CKEditor 默认分割行为（数据元作为整体被移动，不受影响），
+			// 确保普通文本/非数据元内容插入仍按格式正常分割。
+			if (node && !(node.hasClass("new-textbox") || node.hasClass("new-textbox-content"))
+					&& !rangeStartInsideDatasource( range )) {
 				range.splitElement( node );
 				that.inlineStylesRoot = node;
 				that.inlineStylesPeak = path.lastElement;

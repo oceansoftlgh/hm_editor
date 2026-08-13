@@ -1,4 +1,10 @@
-.cke_table-faked-selection-editor *::selection, table.cke_table-faked-selection-table *::selection {
+/* 仅在编辑器处于"表格假选择"模式时隐藏文本选区高亮 (task/004):
+   假选择有自己的高亮样式(.cke_table-faked-selection), 此时隐藏 ::selection 避免叠加。
+   限定在 .cke_table-faked-selection-editor(插件进入假选择时添加到编辑区) 内部,
+   避免模板/文档中静态固化的 cke_table-faked-selection-table 类误伤
+   表格内(含表头 th)文本选中的默认高亮。 */
+.cke_table-faked-selection-editor *::selection,
+.cke_table-faked-selection-editor table.cke_table-faked-selection-table *::selection {
 	background: transparent;
 }
 
@@ -24,9 +30,9 @@
 .cke_editable:focus .cke_table-faked-selection a {
 	color: white;
 }
-.cke_table-faked-selection::-moz-selection, .cke_table-faked-selection ::-moz-selection {
+.cke_table-faked-selection-editor .cke_table-faked-selection::-moz-selection, .cke_table-faked-selection-editor .cke_table-faked-selection ::-moz-selection {
 	background: transparent;
 }
-.cke_table-faked-selection::selection, .cke_table-faked-selection ::selection {
+.cke_table-faked-selection-editor .cke_table-faked-selection::selection, .cke_table-faked-selection-editor .cke_table-faked-selection ::selection {
 	background: transparent;
 }

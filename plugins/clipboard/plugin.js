@@ -1488,9 +1488,13 @@ function removeBodyZeroWidthSpace(editor) {
 				return CKEDITOR.TRISTATE_OFF;
 
 			// Cut, copy - check if the selection is not empty.
+			// Note: do NOT treat element selection (e.g. an <img>) as empty just because its
+			// single range is collapsed — element selection is still a valid, copyable/cutable target.
 			var sel = editor.getSelection(),
 				ranges = sel.getRanges(),
-				selectionIsEmpty = sel.getType() == CKEDITOR.SELECTION_NONE || ( ranges.length == 1 && ranges[ 0 ].collapsed );
+				selType = sel.getType(),
+				selectionIsEmpty = selType == CKEDITOR.SELECTION_NONE ||
+					( selType == CKEDITOR.SELECTION_TEXT && ranges.length == 1 && ranges[ 0 ].collapsed );
 
 			return selectionIsEmpty ? CKEDITOR.TRISTATE_DISABLED : CKEDITOR.TRISTATE_OFF;
 		}

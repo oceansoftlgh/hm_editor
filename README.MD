@@ -58,7 +58,7 @@ $ docker-compose -f /path/to/docker-compose.prod.yml up -d
 # 进入 hm_editor 目录
 npm install         # 安装依赖
 grunt release       # 编译
-nodemon index.js    # 启动
+npm run dev:watch   # 启动（热重载，无需全局安装 nodemon）
 ```
 
 ### 3. 访问页面

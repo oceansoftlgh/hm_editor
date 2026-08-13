@@ -3,6 +3,15 @@ var path = require('path');
 var app = express();
 var serveIndex = require('serve-index');
 var editor = require('./src/editor.js');
+
+
+// wkhtmltopdf 依赖系统二进制，确保其安装路径在 PATH 中
+process.env.PATH = [
+	path.join(__dirname, 'wkhtmltopdf', 'bin'),  // 相对项目目录
+	process.env.PATH
+].join(';');
+
+
 var print = require('./src/print.js');
 var mock = require('./src/mock');
 var bodyParser = require('body-parser');
@@ -85,21 +94,21 @@ emrEditorRouter.use('/', editor);
 var server = app.listen(process.env.PORT||3071,'0.0.0.0',function(){
 	var port = process.env.PORT||3071;
 	var baseUrl = 'http://127.0.0.1:' + port;
-	
+
 	console.log('\n========================================');
 	console.log('欢迎使用 惠每智能电子病历编辑器');
 	console.log('官网地址：https://editor.huimei.com/');
 	console.log('========================================\n');
-	
+
 	console.log('📄 Demo 页面地址（本地）：');
 	console.log('   ' + baseUrl + HM + '/demo/index.html');
 	console.log('   ' + baseUrl + HM + '/demo/ai-draft-demo.html');
 	console.log('');
-	
+
 	console.log('📦 JS 引用方式：');
 	console.log('   <script src="' + baseUrl + HM + '/iframe/HmEditorIfame.js"></script>');
 	console.log('');
-	
+
 	console.log('🔗 SDK Host 地址：');
 	console.log('   ' + baseUrl + HM);
 	console.log('\n========================================\n');

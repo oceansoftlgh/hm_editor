@@ -1,5 +1,6 @@
 var fs = require('fs');
 var path = require('path');
+var os = require('os');
 var wkhtmltopdf = require('wkhtmltopdf');
 var uuidV1 = require('uuid/v1');
 var http = require('http');
@@ -187,6 +188,26 @@ function dealPrintContinuedPdf1(buffer, res, hospitalParams, printParam, Destina
  * @param {*} res
  * ͨ生成pdf文件，返回地址
  */
+/**
+ * 将 HTML 中的内联 base64 图片提取为临时文件，返回处理后的 HTML 和清理函数
+ */
+function extractBase64ToFiles(html) {
+	var index = 0;
+	var tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hm-img-'));
+	var processed = html.replace(/src="data:image\/([^;]+);base64,([^"]+)"/g, function(m, ext, b64) {
+		var buf = Buffer.from(b64, 'base64');
+		var tmpFile = path.join(tmpDir, 'img_' + index++ + '.' + ext);
+		fs.writeFileSync(tmpFile, buf);
+		return 'src="file:///' + tmpFile.replace(/\\/g, '/') + '"';
+	});
+	return {
+		html: processed,
+		cleanup: function() {
+			try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch(e) {}
+		}
+	};
+}
+
 router.post('/getPdfPath', function (req, res) {
 	log('\n=====================');
 	var time = new Date().getTime();
@@ -204,8 +225,24 @@ router.post('/getPdfPath', function (req, res) {
 			//res.setHeader("Content-Disposition", "attachment;filename=" + pdfName + ".pdf");
 		}
 
+		// 将内联 base64 图片提取为临时文件，减轻 wkhtmltopdf 内存压力
+		var _img = extractBase64ToFiles(html);
+		html = _img.html;
+
 		// 预处理 HTML 以优化水印显示，特别是倾斜角度
 		html = preProcessWatermarkHtml(html);
+
+		// 修复：wkhtmltopdf 渲染字符串 HTML 时，相对资源路径（如 /hmEditor/contents.css）会被解析为
+		// 服务端本地文件系统路径而加载失败，导致打印样式缺失（跨页重复表头时第一列不显示、
+		// 表头与表体间出现空行等）。此处将相对路径补全为服务端可访问的绝对地址，
+		// 优先使用请求 Host（兼容 nginx 反代透传的 Host）。
+		var reqHost = req.headers && (req.headers['x-forwarded-host'] || req.headers.host);
+		if (!reqHost) {
+			reqHost = '127.0.0.1:' + (process.env.PORT || 3071);
+		}
+		reqHost = String(reqHost).replace(/\/+$/, '');
+		var serverOrigin = /^https?:\/\//i.test(reqHost) ? reqHost : 'http://' + reqHost;
+		html = html.replace(/((?:href|src)=")\/hmEditor\//g, '$1' + serverOrigin + '/hmEditor/');
 
 		// 优化 wkhtmltopdf 配置以支持水印
 		var defaultOptions = {
@@ -228,17 +265,18 @@ router.post('/getPdfPath', function (req, res) {
 			'disable-smart-shrinking': false,
 			// 启用 SVG 支持
 			'enable-plugins': true,
-			// 设置渲染质量
-			'image-quality': 100,
-			'image-dpi': 300,
+			// 设置渲染质量（降低以减小 PDF 体积）
+			'image-quality': 75,
+			'image-dpi': 150,
 			// 等待页面完全加载
 			'no-stop-slow-scripts': true,
 			// 启用字体子集
 			'disable-font-subsetting': false
 		};
 
-		// 合并用户选项和默认选项
+		// 合并用户选项和默认选项（排除 wkhtmltopdf 0.12.6 不支持的参数）
 		options = Object.assign(defaultOptions, options || {});
+		delete options.pageOffset;
 
 		// options.dpi = 96;
 		// options.debug = true;
@@ -264,6 +302,8 @@ router.post('/getPdfPath', function (req, res) {
 
 			fs.writeFile(path.join(DestinationFolder, fileName), buf, (err) => {
                 if (err) throw err;
+                // 清理临时图片文件
+                _img.cleanup();
                 res.json({"path": path.join(DestinationFolder, fileName)});
             });
 		});

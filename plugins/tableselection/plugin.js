@@ -1679,6 +1679,32 @@
 				editor.addContentsCss( this.path + '/styles/tableselection.css' );
 			}
 
+			// 清除文档/模板中静态固化的"假选择"状态类 (task/004):
+			// fakeSelectedClass/fakeSelectedTableClass/fakeSelectedEditorClass 本应只存在于
+			// 表格假选择(运行态)期间, 由插件动态添加并在退出时移除。但模板 HTML 可能在
+			// 假选择状态下保存, 把类固化进内容; 加载后表格内文本的 ::selection 背景被
+			// tableselection.css 置为透明, 出现"选中无背景高亮"。
+			// 内容 DOM 每次就绪(首次加载及每次 setData)时清理残留类, 恢复表格内选中高亮。
+			editor.on( 'contentDom', function() {
+				var editable = editor.editable(),
+					doc = editor.document,
+					nodeList, i;
+
+				if ( editable ) {
+					editable.removeClass( fakeSelectedEditorClass );
+				}
+				if ( doc ) {
+					nodeList = doc.find( '.' + fakeSelectedTableClass );
+					for ( i = nodeList.count() - 1; i >= 0; i-- ) {
+						nodeList.getItem( i ).removeClass( fakeSelectedTableClass );
+					}
+					nodeList = doc.find( '.' + fakeSelectedClass );
+					for ( i = nodeList.count() - 1; i >= 0; i-- ) {
+						nodeList.getItem( i ).removeClass( fakeSelectedClass );
+					}
+				}
+			} );
+
 			editor.on( 'contentDom', function() {
 				var editable = editor.editable(),
 					mouseHost = editable.isInline() ? editable : editor.document,

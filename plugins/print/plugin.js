@@ -84,10 +84,10 @@ function getPdfPath(path, params, syncType, download, callback, downloadPdfCallb
                             }
                             return;
                         }
-                        
+
                         // 创建Blob URL
                         var blobUrl = URL.createObjectURL(blob);
-                        
+
                         // 创建一个临时的a标签来强制下载
                         var downloadLink = document.createElement('a');
                         downloadLink.href = blobUrl;
@@ -95,13 +95,13 @@ function getPdfPath(path, params, syncType, download, callback, downloadPdfCallb
                         document.body.appendChild(downloadLink);
                         downloadLink.click();
                         document.body.removeChild(downloadLink);
-                        
+
                         // 释放Blob URL 并删除服务器文件
                         setTimeout(function() {
                             URL.revokeObjectURL(blobUrl);
                             deletepdf(res.path);
                         }, 3000);
-                        
+
                         if (layer) {
                             layer.remove();
                         }
@@ -118,7 +118,7 @@ function getPdfPath(path, params, syncType, download, callback, downloadPdfCallb
                         document.body.appendChild(downloadLink);
                         downloadLink.click();
                         document.body.removeChild(downloadLink);
-                        
+
                         setTimeout(function() {
                             deletepdf(res.path);
                         }, 3000);
@@ -327,10 +327,10 @@ function dealPrintLabelNew(editor, syncType) {
         breakLineEleNew.remove();
         return true;
     }
-    
+
     var breakLineEleNewStart = $body.parent().find('>.breakLineEleNewStart');
     var breakLineEleNewEnd = $body.parent().find('>.breakLineEleNewEnd');
-    
+
     // 新续打 - 处理开始标识
     if (breakLineEleNewStart.length > 0) {
         var startHeight = parseFloat(breakLineEleNewStart.css('height'));
@@ -348,7 +348,7 @@ function dealPrintLabelNew(editor, syncType) {
         // 删除前面的页
         firstPage.prevAll().remove();
     }
-    
+
     // 新续打 - 处理结束标识
     if (breakLineEleNewEnd.length > 0) {
         // 结束标识遮罩的 top 值就是结束标识的位置
@@ -357,7 +357,7 @@ function dealPrintLabelNew(editor, syncType) {
         var endPage = $body.find('>').filter(function () {
             return $(this).offset().top + this.offsetHeight > endHeight;
         }).first();
-        
+
         if (endPage.length > 0) {
             // 删除结束标识所在页面之后的所有页面
             endPage.nextAll().remove();
@@ -376,13 +376,13 @@ function dealPrintLabelNew(editor, syncType) {
                 .find('*').css("opacity", "0").css('border-color', 'transparent');
         }
     }
-    
+
     // 如果只有结束标识，提示需要设置开始标识
     if (breakLineEleNewStart.length === 0 && breakLineEleNewEnd.length === 0) {
         editor.showNotification("请先设置续打开始标识！");
         return false;
     }
-    
+
     return true;
 }
 
@@ -523,15 +523,15 @@ function doPrintChrome(editor, syncType, timeout, download, callback, downloadPd
     link.setAttribute('type', 'text/css');
     link.setAttribute('rel', 'stylesheet');
     var contentLink = link.clone();
-    contentLink.setAttribute('href', editorHref + '/contents.css');
+    contentLink.setAttribute('href', (getConfig(editor).printBaseUrl || window.location.origin) +editorHref + '/contents.css');
     head.append(contentLink);
 
     var fontLink = link.clone();
-    fontLink.setAttribute('href', editorHref + '/vendor/font-awesome.min.css');
+    fontLink.setAttribute('href', (getConfig(editor).printBaseUrl || window.location.origin) +editorHref + '/vendor/font-awesome.min.css');
     head.append(fontLink);
 
     var printLink = link.clone();
-    printLink.setAttribute('href', editorHref + '/print.css');
+    printLink.setAttribute('href', (getConfig(editor).printBaseUrl || window.location.origin) + editorHref + '/print.css');
 
     //printLink.setAttribute('media','print');//dosen't take effect? why?
     head.append(printLink);
@@ -554,7 +554,7 @@ function doPrintChrome(editor, syncType, timeout, download, callback, downloadPd
         var src = img.$.src.match('emr-editor(.*)');
         if (src && src.length == 2) {
             src = src[1];
-            img.setAttribute('src', editorHref + src);
+            img.setAttribute('src', (getConfig(editor).printBaseUrl || window.location.origin) + editorHref + src);
 
         }
     }
@@ -583,8 +583,8 @@ function doPrintChrome(editor, syncType, timeout, download, callback, downloadPd
     dealPrintGroupTable($(body.$));
     $(body.$).find('span[diag]').css('display','none');
     $(body.$).find('span[operation]').css('display','none');
-    removeDocReminder(body); 
-    
+    removeDocReminder(body);
+
     // 如果不保存 pdf 的话可以直接在用户电脑上打印
     // 分页模式打印是否生成pdf
     if (!printConfig.pageBreakPrintPdf && !download) {
@@ -646,12 +646,12 @@ function doPrintChrome(editor, syncType, timeout, download, callback, downloadPd
         }
     }
     optionsParams.recordIds = recordIds;
-    
+
     // 恢复修订模式状态（如果之前修改了）
     if (!shouldShowReviseInPrint && editor.reviseStateBeforePrint === 'hide') {
         $(body.$).removeClass('hm-revise-hide').addClass('hm-revise-show');
     }
-    
+
     var timeIndex = setTimeout(function () {
         getPdfPath('/emr-print/getChromeHtml2PdfPath', optionsParams, syncType, download, callback, downloadPdfCallback);
         clearTimeout(timeIndex);
@@ -841,15 +841,15 @@ function doPrint(editor, syncType, timeout, download, callback, downloadPdfCallb
     link.setAttribute('type', 'text/css');
     link.setAttribute('rel', 'stylesheet');
     var contentLink = link.clone();
-    contentLink.setAttribute('href', editorHref + '/contents.css');
+    contentLink.setAttribute('href', (getConfig(editor).printBaseUrl || window.location.origin) +editorHref + '/contents.css');
     head.append(contentLink);
 
     var fontLink = link.clone();
-    fontLink.setAttribute('href', editorHref + '/vendor/font-awesome.min.css');
+    fontLink.setAttribute('href', (getConfig(editor).printBaseUrl || window.location.origin) +editorHref + '/vendor/font-awesome.min.css');
     head.append(fontLink);
 
     var printLink = link.clone();
-    printLink.setAttribute('href', editorHref + '/print.css');
+    printLink.setAttribute('href', (getConfig(editor).printBaseUrl || window.location.origin) +editorHref + '/print.css');
     //printLink.setAttribute('media','print');//dosen't take effect? why?
     head.append(printLink);
 
@@ -907,7 +907,7 @@ function doPrint(editor, syncType, timeout, download, callback, downloadPdfCallb
             var _class = shouldShowReviseInPrint?'hm-revise-show':'hm-revise-hide';
 
             papareHeaderStr = _style + '<div style="font-family:SimSun;line-height:1.5;margin-left:' + paperMargin.left +
-                ';'+headerOpacity+'margin-right:' + paperMargin.right +'" class="'+ _class +'" >' + 
+                ';'+headerOpacity+'margin-right:' + paperMargin.right +'" class="'+ _class +'" >' +
                 papareHeaderStr + '</div>';
         }
 
@@ -1013,7 +1013,7 @@ function doPrint(editor, syncType, timeout, download, callback, downloadPdfCallb
         var src = img.$.src.match('emr-editor(.*)');
         if (src && src.length == 2) {
             src = src[1];
-            img.setAttribute('src', editorHref + src);
+            img.setAttribute('src', (getConfig(editor).printBaseUrl || window.location.origin) +editorHref + src);
 
         }
     }
@@ -1058,8 +1058,8 @@ function doPrint(editor, syncType, timeout, download, callback, downloadPdfCallb
             "marginBottom": paperFooterHeight + 'px',
             "marginLeft": '0px',
             "marginRight": '0px',
-            "headerHtml": paperHeaderToken ? editorHref + '/emr-editor/dynamicHeaderFooter?uuid=' + paperHeaderToken.responseText : '',
-            "footerHtml": paperFooterToken ? editorHref + '/emr-editor/dynamicHeaderFooter?uuid=' + paperFooterToken.responseText : ''
+            "headerHtml": paperHeaderToken ? (getConfig(editor).printBaseUrl || window.location.origin) + editorHref + '/emr-editor/dynamicHeaderFooter?uuid=' + paperHeaderToken.responseText : '',
+            "footerHtml": paperFooterToken ? (getConfig(editor).printBaseUrl || window.location.origin) + editorHref + '/emr-editor/dynamicHeaderFooter?uuid=' + paperFooterToken.responseText : ''
         }
     };
     if (syncType == "续打") { // 续打增加续打标志
@@ -1092,11 +1092,11 @@ function doPrint(editor, syncType, timeout, download, callback, downloadPdfCallb
     var headHtml = head.getOuterHtml();
     timeout = isNaN(timeout) ? 100 : timeout;
     // var _simPageList = $(body.$).find('div[_simPage]');
-    checkDaiwenFont(body, papareHeaderStr, papareFooterStr); 
-    
+    checkDaiwenFont(body, papareHeaderStr, papareFooterStr);
+
     var bodyContent = body.getOuterHtml();
-    optionsParams['html'] = '<!DOCTYPE html><html style="padding-top: 0;">' + headHtml + bodyContent + '</html>'; 
-    
+    optionsParams['html'] = '<!DOCTYPE html><html style="padding-top: 0;">' + headHtml + bodyContent + '</html>';
+
     $(body.find('.emrWidget-content').$).css('display', 'block');
     var timeIndex = setTimeout(function () {
         getPdfPath('/emr-print/getPdfPath', optionsParams, syncType, download, callback, downloadPdfCallback);
@@ -1162,7 +1162,7 @@ function checkDaiwenFont(body, papareHeaderStr, papareFooterStr) {
             // 处理data参数：可能是字符串（旧方式）或对象（新方式，包含回调）
             var syncType, downloadPdfCallback;
             var download = false;
-            
+
             if (typeof data === 'string') {
                 // 兼容旧方式：直接传递字符串
                 syncType = data;
@@ -1173,7 +1173,7 @@ function checkDaiwenFont(body, papareHeaderStr, papareFooterStr) {
             } else {
                 syncType = data;
             }
-            
+
             var savePrintFunction = function () {
                editor.fire('toolbarCommandComplete',{command:'print',type:syncType,data:{}});
             };
@@ -1240,7 +1240,7 @@ function checkDaiwenFont(body, papareHeaderStr, papareFooterStr) {
                     execPrintCommand(editor, pluginName, '续打');
                 }
             };
-            
+
             editor.ui.add('Print', CKEDITOR.UI_MENUBUTTON, {
                 label: '打印',
                 command: pluginName,

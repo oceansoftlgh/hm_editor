@@ -569,14 +569,14 @@ $(document).ready(function () {
     // 初始化工具栏快捷键控制
     initToolbarShortcuts();
 
-    // 页面加载时默认隐藏工具栏（因为默认选中AI病历演示tab）
-    hideBtnPanel();
+    // 页面加载时默认显示工具栏（因为默认选中常用病历模板tab）
+    showBtnPanel();
     // 显示工具栏切换按钮
     $('#toolbarToggleBtn').show();
-    // 设置切换按钮图标为向下（表示可以展开）
-    $('#toolbarToggleBtn i').removeClass('fa-caret-up').addClass('fa-caret-down');
-    // 页面加载时默认启用AI按钮（因为默认选中AI病历演示tab）
-    controlAiButtons(true);
+    // 设置切换按钮图标为向上（表示可以收起）
+    $('#toolbarToggleBtn i').removeClass('fa-caret-down').addClass('fa-caret-up');
+    // 页面加载时默认禁用AI按钮（因为默认选中常用病历模板tab）
+    controlAiButtons(false);
 
     // 添加tab切换逻辑
     $('.tree-tab').on('click', function () {

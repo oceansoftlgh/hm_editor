@@ -16,6 +16,11 @@ table {
     box-sizing: border-box;
 }
 
+/* 修复 wkhtmltopdf 对 td/th 内联 position:relative 渲染错乱，导致跨页重复表头时第一列标题错位/不显示、表头与表体间出现空行的问题 */
+table td, table th {
+    position: static !important;
+}
+
 /* 仅加粗打印时最后一列单元格的右边框，解决右侧线过细；不加 !important，隐藏右边框（内联样式）仍优先 */
 table:not(.dashed-border) td:last-child,
 table:not(.dashed-border) th:last-child {

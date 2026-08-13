@@ -167,6 +167,7 @@ commonHM.component['documentModel'].fn({
         }
         var styleStr = styleParts.length ? ' style="' + styleParts.join(';') + '"' : '';
         var imageHtml = '<span><img src="' + imageData.src + '"' + styleStr + ' /></span>';
+        // 插入位置由 insertContentAtCursor 内部统一处理（避开数据元、避免破坏结构）
         _t.insertContentAtCursor(imageHtml);
     },
     /**

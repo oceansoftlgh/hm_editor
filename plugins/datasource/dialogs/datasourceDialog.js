@@ -127,13 +127,13 @@ $(function () {
                 ds['nodeName'] = nodeType;
                 return;
             }
-            
+
             // 如果已经显式设置了 nodeName（如单选、多选等），则保留原值
             var validNodeNames = ['时间', '纯文本', '数字文本', '下拉', '下拉多选', '搜索', '单元', '单选', '多选'];
             if(ds['nodeName'] && validNodeNames.indexOf(ds['nodeName']) > -1){
                 return;
             }
-            
+
             if(ds['name'].indexOf('[$日期_时间$]') > 0){
                 ds['nodeName'] = '单元';
                 return;
@@ -292,97 +292,107 @@ $(function () {
             });
         },
         insertDataSource: function (datasource) { //插入数据元
-            console.log('insertDataSource', datasource);
-            var _this = this;
-            var data = {};
-            data['data-hm-name'] = datasource['name'];
-            data['data-hm-code'] = datasource['code'];
-            data['autoLable'] = datasource['autoLable']; // 是否自动添加数据元标题
+          console.log('insertDataSource', datasource);
+          var _this = this;
+          var data = {};
+          data['data-hm-name'] = datasource['name'];
+          data['data-hm-code'] = datasource['code'];
+          data['autoLable'] = datasource['autoLable']; // 是否自动添加数据元标题
 
-            if(!datasource['nodeType']){
-                this.dsType(datasource);
-                var nodeType = datasource['nodeName'];
+          if (!datasource['nodeType']) {
+            this.dsType(datasource);
+            var nodeType = datasource['nodeName'];
+            var selectMode = datasource['selectMode'] || '';
 
-                if(nodeType == '时间'){
-                    data['data-hm-node'] = 'timebox';
-                    data['_timeoption'] = 'date';
-                }else if(nodeType == '数字文本'){
-                    data['data-hm-node'] = 'newtextbox';
-                    data['_texttype'] = '数字文本';
-                }else if(nodeType == '下拉' || nodeType == '下拉多选'){
-                    function c(ds){
-                        var itemsStr = "";
-                        if (ds['dictList'] && ds['dictList'].length > 0) {
-                            var items = [];
-                            for (var i = 0; i < ds['dictList'].length; i++) {
-                                items.push(ds['dictList'][i]['code'] + '(' + ds['dictList'][i]['val'] + ')');
-                            }
-                            itemsStr = items.join('#');
-                        } else if (ds['type'] == 'L') {
-                            itemsStr = "是#否";
-                        } else if (ds['items']) {
-                            itemsStr = ds['items'];
-                        }
-                        return itemsStr;
-                    }
-                    data['data-hm-node'] = 'newtextbox';
-                    data['_texttype'] = '下拉';
-                    data['data-hm-items'] = c(datasource);
-                    data['_click'] = 'true';
-                    data['_jointsymbol'] = ',';
-                    // 下拉多选使用"多选"，普通下拉使用"单选"
-                    data['_selecttype'] = (nodeType == '下拉多选') ? '多选' : '单选';
-                }else if(nodeType == '搜索'){
-                    data['data-hm-node'] = 'searchbox';
-                    var n = data['data-hm-name'];
-
-                    // var so = '';
-                    // if(n.indexOf('手术') > -1){
-                    //     if(n.indexOf('编码')){
-                    //         so = '手术编码';
-                    //     }else{
-                    //         so = '手术名称';
-                    //     }
-                    // }else if(n.indexOf('诊断') > -1){
-                    //     if(n.indexOf('编码')){
-                    //         so = '诊断编码';
-                    //     }else{
-                    //         so = '诊断名称';
-                    //     }
-                    // }
-                    // if(so){
-                    //     data._searchoption = datasource.searchOption;
-                    // }
-
-
-                }else if(nodeType == '单元'){
-                    data['data-hm-node'] = 'cellbox';
-                }else if(nodeType == '单选' || nodeType == '多选'){
-                    // 单选和多选共用选项解析逻辑
-                    function getSelectItems(ds){
-                        if (ds['dictList'] && ds['dictList'].length > 0) {
-                            return ds['dictList'].map(function(item){ return item['val']; }).join('#');
-                        }
-                        return ds['items'] || '';
-                    }
-                    data['data-hm-node'] = (nodeType == '单选') ? 'radiobox' : 'checkbox';
-                    data['data-hm-items'] = getSelectItems(datasource);
-                    data['items'] = data['data-hm-items'].split('#');
-                }else{
-                    data['data-hm-node'] = 'newtextbox';
-                    data['_texttype'] = '纯文本';
+            if (nodeType == '时间') {
+              data['data-hm-node'] = 'timebox';
+              data['_timeoption'] = 'date';
+            } else if (nodeType == '数字文本') {
+              data['data-hm-node'] = 'newtextbox';
+              data['_texttype'] = '数字文本';
+            } else if (nodeType == '下拉' || nodeType == '下拉多选') {
+              function c(ds) {
+                var itemsStr = "";
+                if (ds['dictList'] && ds['dictList'].length > 0) {
+                  var items = [];
+                  for (var i = 0; i < ds['dictList'].length; i++) {
+                    items.push(ds['dictList'][i]['val'] + '(' + ds['dictList'][i]['code'] + ')');
+                  }
+                  itemsStr = items.join('#');
+                } else if (ds['type'] == 'L') {
+                  itemsStr = "是#否";
+                } else if (ds['items']) {
+                  itemsStr = ds['items'];
                 }
-            }else{
-                data['data-hm-node'] = datasource['nodeType'];
-                Object.assign(data,datasource);
-            }
+                return itemsStr;
+              }
 
-            if(data['data-hm-node'] == 'newtextbox'){
-                data['_placeholder'] = data['data-hm-name'];
+              data['data-hm-node'] = 'newtextbox';
+              data['_texttype'] = '下拉';
+              data['data-hm-items'] = c(datasource);
+              data['_click'] = 'true';
+              data['_jointsymbol'] = ',';
+              // 下拉多选使用"多选"，普通下拉使用"单选"
+              data['_selecttype'] = (selectMode == '多选') ? '多选' : '单选';
+            } else if (nodeType == '搜索') {
+              data['data-hm-node'] = 'searchbox';
+              var n = data['data-hm-name'];
+
+              // var so = '';
+              // if(n.indexOf('手术') > -1){
+              //     if(n.indexOf('编码')){
+              //         so = '手术编码';
+              //     }else{
+              //         so = '手术名称';
+              //     }
+              // }else if(n.indexOf('诊断') > -1){
+              //     if(n.indexOf('编码')){
+              //         so = '诊断编码';
+              //     }else{
+              //         so = '诊断名称';
+              //     }
+              // }
+              // if(so){
+              //     data._searchoption = datasource.searchOption;
+              // }
+
+
+            } else if (nodeType == '单元') {
+              data['data-hm-node'] = 'cellbox';
+            } else if (nodeType == '单选' || nodeType == '多选') {
+              // 单选和多选共用选项解析逻辑
+              function getSelectItems(ds) {
+                if (ds['dictList'] && ds['dictList'].length > 0) {
+                  return ds['dictList'].map(function (item) {
+                    return item['val'];
+                  }).join('#');
+                }
+                return ds['items'] || '';
+              }
+
+              data['data-hm-node'] = (nodeType == '单选') ? 'radiobox' : 'checkbox';
+              data['data-hm-items'] = getSelectItems(datasource);
+              data['items'] = data['data-hm-items'].split('#');
+            } else {
+              data['data-hm-node'] = 'newtextbox';
+              data['_texttype'] = '纯文本';
             }
-            delete data['nodeName'];
-            delete data['nodeType'];
-            _handleCreate(_this.editor, data);
+          } else {
+            data['data-hm-node'] = datasource['nodeType'];
+            Object.assign(data, datasource);
+          }
+
+          if (datasource['placeholder']) {
+            data['_placeholder'] = datasource['placeholder'];
+          } else {
+            if (data['data-hm-node'] == 'newtextbox') {
+              data['_placeholder'] = data['data-hm-name'];
+            }
+          }
+
+          delete data['nodeName'];
+          delete data['nodeType'];
+          _handleCreate(_this.editor, data);
         }
     });
 

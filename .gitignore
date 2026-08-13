@@ -130,3 +130,7 @@ mqsource
 .specstory
 editorDist
 /*.cursorindexingignore
+/.codewhale
+/.idea
+/.deepseek
+/task

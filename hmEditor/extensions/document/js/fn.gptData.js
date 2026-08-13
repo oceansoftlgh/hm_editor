@@ -1467,10 +1467,16 @@ commonHM.component['documentModel'].fn({
         if (!tpl || !renderDocs || !renderDocs.length) {
             return '';
         }
-        return $.getTpl(tpl, {
+        var html = $.getTpl(tpl, {
             docs: renderDocs,
             getUUId: this._genDocUUID
         });
+        // =======================归一化：开始=======================
+        // 归一化 new-textbox 单 span 结构：脏数据中「外层 new-textbox 自身携带内层属性但没有
+        // 嵌套 span.new-textbox-content」会被补全为标准嵌套结构。
+        // 多见于 AI 草稿接口返回的非标准片段。字符串版：检测命中才 parse，有改动才序列化返回。
+        return this._normalizeNewTextboxHtml(html);
+        // =======================归一化：结束=======================
     },
 
     /**

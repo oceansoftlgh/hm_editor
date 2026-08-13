@@ -103,6 +103,16 @@ table[_hm_copy_table_header] thead{
     display: table-header-group;
 }
 
+/* 修复 wkhtmltopdf/浏览器打印对 td/th 内联 position:relative 渲染错乱，
+   导致跨页重复表头时第一列标题错位/不显示、表头与表体间出现空行的问题。
+   仅在打印媒体下清除定位，编辑器屏幕显示不受影响。
+   与 print.css 中的同名规则配合，覆盖浏览器直接打印与服务端 PDF 两条路径。 */
+@media print {
+    table td, table th {
+        position: static !important;
+    }
+}
+
 tfoot {
     display: table-footer-group
 }
@@ -463,8 +473,7 @@ span[data-hm-node=icd10-code] {
 [_paperheader] {
     /* background-color: #F0F0F0; */
 }
-[_placeholdertext].print-preview,
-[_placeholderText].print-preview {
+[_placeholdertext].print-preview {
     display: none !important;
 }
 

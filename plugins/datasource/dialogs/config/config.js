@@ -122,8 +122,8 @@ function init() {
     $('#separatorValueInput').prop('readonly', true);
     // 初始化分割样式默认值
     $('#separatorValueInput').val('&nbsp;');
-    var allowModify = (window.HMConfig && window.HMConfig.allowModifyDatasource) || 
-    (window.parent && window.parent.HMConfig && window.parent.HMConfig.allowModifyDatasource) || 
+    var allowModify = (window.HMConfig && window.HMConfig.allowModifyDatasource) ||
+    (window.parent && window.parent.HMConfig && window.parent.HMConfig.allowModifyDatasource) ||
         false;
     // 获取当前选中的类型
     var currentType = $(".type input[type='radio']:checked").val();
@@ -155,7 +155,7 @@ function editDsInit(ele) {
         editFlag = true;
         // 使用jQuery选择器查找最近的带有data-hm-node属性的父级元素
         var $element = $(ele).closest('[data-hm-node]');
-        
+
         // 如果找到了带data-hm-node的元素
         if ($element.length) {
             ele = $element[0];
@@ -183,8 +183,8 @@ function changeTypeInit(val,texttype) {
     $('.row .hidelabelcode-only').hide();
 
     // 标题类数据元不显示按钮
-    var allowModify = (window.HMConfig && window.HMConfig.allowModifyDatasource) || 
-    (window.parent && window.parent.HMConfig && window.parent.HMConfig.allowModifyDatasource) || 
+    var allowModify = (window.HMConfig && window.HMConfig.allowModifyDatasource) ||
+    (window.parent && window.parent.HMConfig && window.parent.HMConfig.allowModifyDatasource) ||
     false;
     if (val == 'labelbox') {
         $("#autoGenerateCodeBtn").hide();
@@ -410,7 +410,7 @@ var dsSelect = {
                     $("#interact-search").attr('code', code);
                     $(".row input.ds-code").val(code);
                     $(".row input[_type=_placeholder]").val(name);
-                 
+
                     changeDsInit(dsObj[name] || {name: name, code: code});
                 })
             }
@@ -425,9 +425,9 @@ var dsSelect = {
         $("#interact-search").attr('code', this.getCode(val));
     },
     get: function () {
-        return { 
-            'data-hm-name': $("#interact-search").val() || '', 
-            'data-hm-code': $(".row input.ds-code").val() || $("#interact-search").attr('code') || '' 
+        return {
+            'data-hm-name': $("#interact-search").val() || '',
+            'data-hm-code': $(".row input.ds-code").val() || $("#interact-search").attr('code') || ''
         }
     },
     getCode: function (name) {
@@ -443,7 +443,7 @@ function setConfig(data) {
         // 勾选定位标识复选框
         $('#c10').prop('checked', true);
     }
-    
+
     initDateSel(nodeType);
     // 设置当前类型选中状态
     $(".type input[type='radio'][value=" + nodeType + "]").attr('checked', true);
@@ -456,8 +456,8 @@ function setConfig(data) {
     }else{
         dsSelect.set(data['data-hm-name']);
         // 检查是否允许修改数据源
-        var allowModify = (window.HMConfig && window.HMConfig.allowModifyDatasource) || 
-                          (window.parent && window.parent.HMConfig && window.parent.HMConfig.allowModifyDatasource) || 
+        var allowModify = (window.HMConfig && window.HMConfig.allowModifyDatasource) ||
+                          (window.parent && window.parent.HMConfig && window.parent.HMConfig.allowModifyDatasource) ||
                           false;
         // 标题类数据元不显示按钮
         if (allowModify && nodeType != 'labelbox') {
@@ -570,10 +570,10 @@ function setConfig(data) {
     function setSeparator(){
         var separatorType = data['_separator_type'] || 'space';
         var separatorValue = data['_separator_value'] || '&nbsp;';
-        
+
         $('#separatorTypeSelect').val(separatorType);
         $('#separatorValueInput').val(separatorValue);
-        
+
         // 如果选择"其他"，输入框可编辑；否则只读
         if(separatorType === 'other') {
             $('#separatorValueInput').prop('readonly', false);
@@ -604,8 +604,8 @@ function config() {
     // 校验数据元
     var dsName = _dsObj['data-hm-name'] || '';
     var dsCode = _dsObj['data-hm-code'] || '';
-    var allowModify = (window.HMConfig && window.HMConfig.allowModifyDatasource) || 
-                      (window.parent && window.parent.HMConfig && window.parent.HMConfig.allowModifyDatasource) || 
+    var allowModify = (window.HMConfig && window.HMConfig.allowModifyDatasource) ||
+                      (window.parent && window.parent.HMConfig && window.parent.HMConfig.allowModifyDatasource) ||
                       false;
     if (allowModify) {
         // 支持自由输入的数据元名称和编码
@@ -655,7 +655,7 @@ function config() {
         if (ds1) {
             _dsObj['_searchpair'] = ds1;
         }
-        
+
         // 获取搜索类型选择值
         var searchOption = $('select[_type="_searchoption"]').val() || '';
         if (searchOption) {
@@ -983,17 +983,17 @@ function loadSearchOptions() {
 function autoGenerateCode() {
     var maxNumber = 0;
     var prefix = 'AUCD.';
-    
+
     try {
         // 从父窗口的编辑器 DOM 中查找所有带有 data-hm-code 属性的元素
         var $body = null;
         var editor = null;
-        
+
         // 尝试通过多种方式获取编辑器实例和 body
         // 方式1: 通过 parentWin.editorIns
         if (parentWin && parentWin.editorIns) {
             editor = parentWin.editorIns;
-        }   
+        }
         // 如果找到了编辑器实例，获取其 document body
         if (editor && editor.document) {
             try {
@@ -1005,7 +1005,7 @@ function autoGenerateCode() {
                 console.warn('通过 editor.document.getBody() 获取 body 失败:', e);
             }
         }
-        
+
 
         // 如果找到了 body，查找所有带有 data-hm-code 属性的元素
         if ($body && $body.length > 0) {
@@ -1026,11 +1026,11 @@ function autoGenerateCode() {
     } catch (e) {
         console.error('获取编辑器 DOM 失败:', e);
     }
-    
+
     // 生成新编码：最大序号 + 1，格式化为5位数字
     var newNumber = maxNumber + 1;
     var newCode = prefix + ('00000' + newNumber).slice(-5);
-    
+
     // 设置到编码输入框
     $(".row input.ds-code").val(newCode);
 }

@@ -254,7 +254,21 @@ commonHM.component['documentModel'].fn({
             .replace(/↵/, '<br/>')
             .replace(/(<span[^>]+_timeoption=[^>]*>)(<\/span>)/g, '$1\u200B$2'));
         var $body = $(_t.editor.document.getBody().$);
-        $body.html($div.html());
+        // =======================归一化：开始=======================
+        // 归一化 new-textbox 单 span 结构：脏数据中「外层 new-textbox 自身携带内层属性但没有
+        // 嵌套 span.new-textbox-content」会被补全为标准嵌套结构，避免后续 bindDatasource 走兼容分支。
+        // 快路径：标准病历（计数检测）直接跳过 jQuery parse + find + each，开销降到两次 regex 扫描。
+        if (_t._hasDirtyNewTextboxHtml(content)) {
+            _t._normalizeNewTextboxDom($div);
+        }
+        // =======================归一化：结束=======================
+        // 性能优化：直接搬 DOM 子节点，避免 $div.html() 序列化和 $body.html() 反序列化。
+        // 文档级属性（data-hm-papersize / meta_json / style / doc_code 等）由下方代码段
+        // 从 $div 上读取后单独搬到 $body，这里只负责内容迁移，行为与原 $body.html($div.html()) 一致。
+        var bodyEl = $body[0];
+        var divEl = $div[0];
+        while (bodyEl.firstChild) bodyEl.removeChild(bodyEl.firstChild);
+        while (divEl.firstChild) bodyEl.appendChild(divEl.firstChild);
         if (!designMode) {
             // 初始化不可用数据源状态
             _t.initDisabledDatasourceState($body);
@@ -369,14 +383,6 @@ commonHM.component['documentModel'].fn({
                         background: #f44336 !important;
                         transform: none !important;
                     }
-                    .add-row-icon.disabled {
-                        opacity: 0.5 !important;
-                        cursor: not-allowed !important;
-                    }
-                    .add-row-icon.disabled:hover {
-                        background: #4CAF50 !important;
-                        transform: none !important;
-                    }
                 </style>
             `);
         }
@@ -403,53 +409,21 @@ commonHM.component['documentModel'].fn({
     /**
      * 渲染数据
      * @param {*} data
-     * @param {Object} [options] 渲染选项
-     * @param {Boolean} [options.fullRender] 为 true 时强制完整去分页/重分页
-     *
-     * AIED-356 优化：避免页面抖动
-     * - 手动分页：lockSnapshot + 同步后置处理 + 恢复滚动位置
-     * - 实时分页（首次/强制）：隐藏中间态 → 去分页/赋值/重分页
-     * - 实时分页（已分页增量）：原地赋值 + debounce 重分页，与用户输入一致
+     * 
+     * AIED-356 优化：手动分页模式下避免页面抖动
+     * - 手动分页下同步后置 DOM 操作并恢复滚动位置
+     * - 批量处理图片初始化，减少重绘次数
      */
-    renderData: function (data, options) {
+    renderData: function (data) {
         var _t = this;
-        options = options || {};
         var isRealtimePageBreak = _t.editor.HMConfig.realtimePageBreak;
-
-        if (isRealtimePageBreak && !options.fullRender && _t._canUseIncrementalRenderData()) {
-            _t._renderDataIncremental(data);
-            return;
-        }
-
-        _t._renderDataFull(data, isRealtimePageBreak);
-    },
-
-    /**
-     * 文档是否已完成实时分页（存在逻辑页）
-     * @returns {Boolean}
-     * @private
-     */
-    _canUseIncrementalRenderData: function () {
-        var pagebreakCmd = CKEDITOR.plugins.pagebreakCmd;
-        if (!pagebreakCmd) {
-            return false;
-        }
-        var body = this.editor.document.getBody().$;
-        return body.getElementsByClassName(pagebreakCmd.LOGIC_PAGE_CLASS).length > 0;
-    },
-
-    /**
-     * 实时分页下增量赋值：跳过去分页，debounce 后重分页
-     * @param {*} data
-     * @private
-     */
-    _renderDataIncremental: function (data) {
-        var _t = this;
+        var isManualPageBreak = !isRealtimePageBreak;
         var docEl = _t.editor.document.$.documentElement;
         var bodyEl = _t.editor.document.$.body;
+        var scrollState = null;
 
-        if (!_t._renderDataIncrementalScrollState) {
-            _t._renderDataIncrementalScrollState = {
+        if (isManualPageBreak) {
+            scrollState = {
                 docTop: docEl.scrollTop,
                 docLeft: docEl.scrollLeft,
                 bodyTop: bodyEl.scrollTop,
@@ -457,97 +431,25 @@ commonHM.component['documentModel'].fn({
             };
         }
 
-        _t.editor.fire('lockSnapshot', { dontUpdate: true });
-        try {
-            _t._applyRenderDataItems(data);
-        } finally {
-            _t.editor.fire('unlockSnapshot');
-        }
-
-        _t._scheduleIncrementalRepaging();
-    },
-
-    /**
-     * debounce 合并脚本连续 setDocData 触发的重分页
-     * @private
-     */
-    _scheduleIncrementalRepaging: function () {
-        var _t = this;
-        if (_t._renderDataRepagingTimer) {
-            clearTimeout(_t._renderDataRepagingTimer);
-        }
-        _t._renderDataRepagingTimer = setTimeout(function () {
-            _t._renderDataRepagingTimer = null;
-            var pagebreakCmd = CKEDITOR.plugins.pagebreakCmd;
-            if (!pagebreakCmd) {
-                _t._finishIncrementalRenderData();
+        var restoreScrollState = function () {
+            if (!scrollState) {
                 return;
             }
-            pagebreakCmd.performAutoPaging(_t.editor, {
-                name: '渲染数据后分页',
-                data: {
-                    source: 'renderDataIncremental'
-                }
-            });
-            _t._waitRealtimePagingComplete(function () {
-                _t._finishIncrementalRenderData();
-            });
-        }, 32);
-    },
-
-    /**
-     * 增量渲染收尾：恢复滚动，不重复触发 onDocumentLoad
-     * @private
-     */
-    _finishIncrementalRenderData: function () {
-        var _t = this;
-        var scrollState = _t._renderDataIncrementalScrollState;
-        if (scrollState) {
-            var docEl = _t.editor.document.$.documentElement;
-            var bodyEl = _t.editor.document.$.body;
-            docEl.scrollTop = scrollState.docTop;
-            docEl.scrollLeft = scrollState.docLeft;
-            bodyEl.scrollTop = scrollState.bodyTop;
-            bodyEl.scrollLeft = scrollState.bodyLeft;
-            _t._renderDataIncrementalScrollState = null;
-        }
-    },
-
-    /**
-     * 完整渲染：首次加载或强制 fullRender
-     * @param {*} data
-     * @param {Boolean} isRealtimePageBreak
-     * @private
-     */
-    _renderDataFull: function (data, isRealtimePageBreak) {
-        var _t = this;
-        var isManualPageBreak = !isRealtimePageBreak;
-        var docEl = _t.editor.document.$.documentElement;
-        var bodyEl = _t.editor.document.$.body;
-        var scrollState = {
-            docTop: docEl.scrollTop,
-            docLeft: docEl.scrollLeft,
-            bodyTop: bodyEl.scrollTop,
-            bodyLeft: bodyEl.scrollLeft
-        };
-
-        var restoreScrollState = function () {
             docEl.scrollTop = scrollState.docTop;
             docEl.scrollLeft = scrollState.docLeft;
             bodyEl.scrollTop = scrollState.bodyTop;
             bodyEl.scrollLeft = scrollState.bodyLeft;
         };
 
-        var endRealtimeRenderBusy = function () {
-            bodyEl.classList.remove('hm-render-data-busy');
-        };
-
+        // 如果开启了实时分页,先移除所有分页
         if (isRealtimePageBreak) {
-            bodyEl.classList.add('hm-render-data-busy');
+            // 保存当前快照
             _t.editor.fire('saveSnapshot', {
                 name: 'beforeRenderData',
                 tagName: 'beforeRenderData'
             });
+
+            // 移除所有分页，但保留 body 宽高和内边距，避免回填数据前后滚动条变化导致页面抖动。
             CKEDITOR.plugins.pagebreakCmd.removeAllSplitters(_t.editor, false, {
                 preserveBodyShape: true,
                 preserveBodyWidth: true,
@@ -555,258 +457,81 @@ commonHM.component['documentModel'].fn({
             });
         }
 
-        _t.editor.fire('lockSnapshot', { dontUpdate: true });
+        // AIED-356: 手动分页模式下，使用文档片段减少重绘
+        if (isManualPageBreak) {
+            // 暂停编辑器渲染，避免中间状态显示
+            _t.editor.fire('lockSnapshot');
+        }
+
         try {
-            _t._applyRenderDataItems(data);
+            // 遍历数据数组
+            data.forEach(function (item) {
+                if (item.code) {
+                    // 查找具有相同 doc_code 属性的节点
+                    var $nodes = $(_t.editor.document.$).find('[doc_code="' + item.code + '"]');
+                    // 如果找到节点，更新其内容
+                    if ($nodes.length > 0) {
+                        $nodes.each(function () {
+                            var $node = $(this);
+                            // 处理普通数据元
+                            if (item.data) {
+                                item.data.forEach(function (dataItem) {
+                                    // 检查是否是表格类型数据
+                                    if (dataItem.keyCode && dataItem.keyCode.indexOf('TABLE_') === 0) {
+                                        // 如果是表格数据，使用_renderTableData处理
+                                        // 从keyCode中提取表格名称（去掉TABLE_前缀）
+                                        var tableName = dataItem.keyCode.substring(6);
+                                        _t._renderTableData($node, dataItem.keyValue, tableName);
+                                        return;
+                                    } else {
+                                        _t._bindDataItem($node, dataItem);
+                                    }
+                                });
+                            }
+                            // 勾选「默认当前时间」(_autoshowcurtime) 的 timebox：无业务值时补当前时间（含未出现在 data 中的项）
+                            _t._applyTimeboxAutoshowCurtime($node);
+                        });
+                    }
+                }
+            });
         } finally {
-            _t.editor.fire('unlockSnapshot');
+            // AIED-356: 恢复编辑器渲染
             if (isManualPageBreak) {
+                _t.editor.fire('unlockSnapshot');
                 restoreScrollState();
             }
         }
 
+        // 如果开启了实时分页,渲染完成后重新进行分页
         if (isRealtimePageBreak) {
+            // 执行分页
             CKEDITOR.plugins.pagebreakCmd.performAutoPaging(_t.editor, {
                 name: '渲染数据后分页',
                 data: {
                     source: 'renderData'
                 }
             });
-            _t._waitRealtimePagingComplete(function () {
-                endRealtimeRenderBusy();
-                restoreScrollState();
-                _t.editor.fire('saveSnapshot', {
-                    name: 'afterRenderData',
-                    tagName: 'afterRenderData'
-                });
+
+            // 保存分页后的快照
+            _t.editor.fire('saveSnapshot', {
+                name: 'afterRenderData',
+                tagName: 'afterRenderData'
+            });
+        }
+
+        if (isManualPageBreak) {
+            // 手动分页下避免下一帧再次改动 DOM，减少可见抖动。
+            _t._renderDataPostProcess();
+            restoreScrollState();
+        } else if (typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(function () {
                 _t._renderDataPostProcess();
             });
-            return;
+        } else {
+            setTimeout(function () {
+                _t._renderDataPostProcess();
+            }, 0);
         }
-
-        _t._renderDataPostProcess();
-        restoreScrollState();
-    },
-
-    /**
-     * 遍历 dataList 并绑定到 DOM
-     * @param {*} data
-     * @private
-     */
-    _applyRenderDataItems: function (data) {
-        var _t = this;
-        data.forEach(function (item) {
-            if (!item.code) {
-                return;
-            }
-            var $nodes = $(_t.editor.document.$).find('[doc_code="' + item.code + '"]');
-            if ($nodes.length === 0) {
-                return;
-            }
-            $nodes.each(function () {
-                var $node = $(this);
-                if (item.data) {
-                    item.data.forEach(function (dataItem) {
-                        if (dataItem.keyCode && dataItem.keyCode.indexOf('TABLE_') === 0) {
-                            var tableName = dataItem.keyCode.substring(6);
-                            _t._renderTableData($node, dataItem.keyValue, tableName);
-                            return;
-                        }
-                        _t._bindDataItem($node, dataItem);
-                    });
-                }
-                _t._applyTimeboxAutoshowCurtime($node);
-            });
-        });
-        _t._syncRealtimePageHeaderFooterFromSource();
-    },
-
-    /**
-     * 实时分页下将源文档中已赋值的页眉页脚同步到各逻辑页可视克隆，并刷新分页缓存。
-     * setDocData 写入 emrWidget 内隐藏的原件，界面展示的是分页克隆，需主动同步。
-     * @private
-     */
-    _syncRealtimePageHeaderFooterFromSource: function () {
-        var _t = this;
-        var pagebreakCmd = CKEDITOR.plugins.pagebreakCmd;
-        if (!pagebreakCmd || !_t.editor.HMConfig.realtimePageBreak) {
-            return;
-        }
-        var body = _t.editor.document.getBody().$;
-        var logicPages = body.getElementsByClassName(pagebreakCmd.LOGIC_PAGE_CLASS);
-        if (!logicPages.length) {
-            return;
-        }
-
-        var $body = $(body);
-        var emrWidgets = body.getElementsByClassName('emrWidget-content');
-        var sourceHeaderTables = [];
-        var sourceFooterTables = [];
-        var wi;
-
-        if (emrWidgets.length) {
-            for (wi = 0; wi < emrWidgets.length && sourceHeaderTables.length === 0; wi++) {
-                $(emrWidgets[wi]).find('table[_paperheader="true"]').each(function () {
-                    sourceHeaderTables.push(this);
-                });
-            }
-            for (wi = emrWidgets.length - 1; wi >= 0 && sourceFooterTables.length === 0; wi--) {
-                $(emrWidgets[wi]).find('table[_paperfooter="true"]').filter(function (i, item) {
-                    return item.getElementsByClassName('page').length;
-                }).each(function () {
-                    sourceFooterTables.push(this);
-                });
-            }
-        }
-        if (!sourceHeaderTables.length) {
-            $body.find('.' + pagebreakCmd.PAGE_CONTENT_CLASS + ' table[_paperheader="true"]').each(function () {
-                sourceHeaderTables.push(this);
-            });
-        }
-        if (!sourceFooterTables.length) {
-            var $footers = $body.find('.' + pagebreakCmd.PAGE_CONTENT_CLASS + ' table[_paperfooter="true"]').filter(function (i, item) {
-                return item.getElementsByClassName('page').length;
-            });
-            if (!$footers.length) {
-                $footers = $body.find('table[_paperfooter="true"]').last();
-            }
-            $footers.each(function () {
-                sourceFooterTables.push(this);
-            });
-        }
-
-        var fillGroupFromTables = function (groupEl, sourceTables) {
-            if (!groupEl || !sourceTables.length) {
-                return;
-            }
-            while (groupEl.firstChild) {
-                groupEl.removeChild(groupEl.firstChild);
-            }
-            for (var ti = 0; ti < sourceTables.length; ti++) {
-                var cloned = sourceTables[ti].cloneNode(true);
-                cloned.style.display = '';
-                groupEl.appendChild(cloned);
-            }
-        };
-
-        var rebuildCacheGroup = function (cacheGroup, sourceTables, groupClass) {
-            if (!sourceTables.length) {
-                return cacheGroup;
-            }
-            var group = cacheGroup;
-            if (!group) {
-                group = _t.editor.document.$.createElement('div');
-                group.className = groupClass;
-                group.setAttribute('contenteditable', 'false');
-            }
-            fillGroupFromTables(group, sourceTables);
-            return group.cloneNode(true);
-        };
-
-        pagebreakCmd.pageHeaderGroup = rebuildCacheGroup(
-            pagebreakCmd.pageHeaderGroup,
-            sourceHeaderTables,
-            pagebreakCmd.PAGE_HEADER_CLASS
-        );
-        pagebreakCmd.pageFooterGroup = rebuildCacheGroup(
-            pagebreakCmd.pageFooterGroup,
-            sourceFooterTables,
-            pagebreakCmd.PAGE_FOOTER_CLASS
-        );
-
-        for (var pi = 0; pi < logicPages.length; pi++) {
-            var logicPage = logicPages[pi];
-            fillGroupFromTables(
-                logicPage.getElementsByClassName(pagebreakCmd.PAGE_HEADER_CLASS)[0],
-                sourceHeaderTables
-            );
-            fillGroupFromTables(
-                logicPage.getElementsByClassName(pagebreakCmd.PAGE_FOOTER_CLASS)[0],
-                sourceFooterTables
-            );
-            _t._refreshQrcodeBarcodeInContainer($(logicPage));
-        }
-        if (pagebreakCmd.pageHeaderGroup) {
-            _t._refreshQrcodeBarcodeInContainer($(pagebreakCmd.pageHeaderGroup));
-        }
-        if (pagebreakCmd.pageFooterGroup) {
-            _t._refreshQrcodeBarcodeInContainer($(pagebreakCmd.pageFooterGroup));
-        }
-    },
-
-    /**
-     * 刷新容器内二维码/条形码展示（克隆页眉页脚后需重新绘制）
-     * @param {jQuery} $root
-     * @private
-     */
-    _refreshQrcodeBarcodeInContainer: function ($root) {
-        var _t = this;
-        if (!$root || !$root.length) {
-            return;
-        }
-        $root.find('span[data-hm-node="newtextbox"]').each(function () {
-            var $box = $(this);
-            var $content = $box.find('span.new-textbox-content');
-            if (!$content.length) {
-                return;
-            }
-            var texttype = $content.attr('_texttype');
-            var bindVal = $content.attr('_bindvalue');
-            if (texttype === '二维码') {
-                if (!bindVal) {
-                    return;
-                }
-                _t.generateQrcode({
-                    text: bindVal,
-                    width: $content.attr('_qrcode_width') || '100',
-                    height: $content.attr('_qrcode_height') || '100',
-                    errorLevel: $content.attr('_qrcode_error_level') || 'M',
-                    textPosition: $content.attr('_qrcode_text_position') || 'bottom',
-                    container: $content
-                }).catch(function (error) {
-                    console.error('页眉页脚二维码刷新失败:', error);
-                });
-            } else if (texttype === '条形码') {
-                if (!bindVal) {
-                    return;
-                }
-                try {
-                    if (_t.generateBarcodeSync) {
-                        var barcodeHTML = _t.generateBarcodeSync({
-                            text: bindVal,
-                            width: $content.attr('_barcode_width') || '200',
-                            height: $content.attr('_barcode_height') || '50',
-                            barWidth: $content.attr('_barcode_bar_width') || '2',
-                            textPosition: $content.attr('_barcode_text_position') || 'bottom'
-                        });
-                        $content.html(barcodeHTML);
-                    }
-                } catch (error) {
-                    console.error('页眉页脚条形码刷新失败:', error);
-                }
-            }
-        });
-    },
-
-    /**
-     * 等待实时分页异步完成
-     * @param {Function} callback
-     * @private
-     */
-    _waitRealtimePagingComplete: function (callback) {
-        var pagebreakCmd = CKEDITOR.plugins.pagebreakCmd;
-        if (!pagebreakCmd) {
-            callback();
-            return;
-        }
-        var check = function () {
-            if (!pagebreakCmd.autoPaging) {
-                callback();
-            } else {
-                setTimeout(check, 16);
-            }
-        };
-        setTimeout(check, 0);
     },
 
     /**
@@ -820,6 +545,13 @@ commonHM.component['documentModel'].fn({
 
         // 数据渲染完成后，检查是否有新的图片需要初始化
         console.log('数据渲染完成，检查图片元素:', $(_t.editor.document.$).find('[data-hm-image-resizable="true"]').length);
+
+        // 初始化文档中已有的图片widget（含数据元内通过 .html() 直接写入的图片）。
+        // 文档加载/数据元回填绕过 setData、insertHtml，widget 不会自动 upcast：
+        // 数据元中的图片（_generateImageWidgetHtml 生成的 wrapper 结构）此时无 widget 实例，
+        // 导致右键菜单无剪切/删除（undo/redo 时 contentDomInvalidated -> checkWidgets 又会恢复）。
+        // checkWidgets 与 undo/redo 恢复走同一路径，幂等，仅补建无实例的 wrapper。
+        _t.editor.widgets.checkWidgets();
 
         // 为现有的图片widget添加拖拽功能（如果还没有的话）
         _t.initExistingImageResizers($(_t.editor.document.getBody().$));
@@ -842,6 +574,13 @@ commonHM.component['documentModel'].fn({
      */
     _renderTableData: function ($node, tableData, tableName) {
         var _t = this;
+
+        // 防御性检查：确保 tableData 是数组
+        if (!tableData || !Array.isArray(tableData)) {
+            console.warn('表格数据无效或不是数组，tableName:', tableName, 'tableData:', tableData);
+            return;
+        }
+
         console.log('开始处理表格数据，数据行数:', tableData.length, '表格名称:', tableName);
 
         try {
@@ -901,17 +640,32 @@ commonHM.component['documentModel'].fn({
         // 重新获取所有行（包括新添加的）
         var $allRows = $tbody.find('tr');
 
+        // 过滤掉 tbody 内"非数据行"：模板设计者有时会把列头说明放在 tbody 内（而不是 thead），
+        // 这类行没有任何 data-hm-code，若按索引匹配 tableData 会导致首行找不到节点。
+        // 这里只保留含数据元的行，并把它们当作真正的数据行基线。
+        var $dataRows = $allRows.filter(function () {
+            return $(this).find('[data-hm-code]').length > 0;
+        });
+        var skippedRowCount = $allRows.length - $dataRows.length;
+        if (skippedRowCount > 0) {
+            console.warn('列表类表格检测到非数据行（不含 data-hm-code），已自动跳过 ' + skippedRowCount + ' 行（建议改用 <thead> 或 _row_skip 属性标记说明行）');
+        }
+
         // 按行渲染护理数据
         tableData.forEach(function (rowData, rowIndex) {
-            if (rowIndex < $allRows.length) {
-                var $currentRow = $allRows.eq(rowIndex);
+            if (rowIndex >= $dataRows.length) return;
+            // 防御性检查：确保行数据是数组
+            if (!Array.isArray(rowData)) {
+                console.warn('第' + rowIndex + '行数据不是数组，跳过:', rowData);
+                return;
+            }
+            var $currentRow = $dataRows.eq(rowIndex);
                 console.log('渲染第' + rowIndex + '行表格数据，数据项数量:', rowData.length);
 
                 // 渲染当前行的所有数据项
                 rowData.forEach(function (dataItem) {
                     _t._bindTableDataToRow($currentRow, dataItem);
                 });
-            }
         });
     },
 
@@ -1121,7 +875,31 @@ commonHM.component['documentModel'].fn({
                 // 绑定数据到数据源节点
                 _t.bindDatasource(datasourceNode, nodeType, bindVal, imgFlag);
             } else {
-                console.warn('未找到匹配的数据元:', dataItem.keyCode, dataItem.keyName);
+
+                // 增强诊断日志：在容器内实际存在哪些 data-hm-code / data-hm-name，便于排查
+                // "模板中缺字段"、"模板 keyCode 与后端不一致" 或 "数据项被设计为行级别但走 col 模式绑定" 等情形
+                var $diagRow = $container.closest('tr');
+                var $diagTable = $container.closest('table[data-hm-datatable]');
+                var availableCodes = [];
+                var availableNames = [];
+                $container.find('[data-hm-code]').each(function () {
+                    var code = $(this).attr('data-hm-code');
+                    if (code && availableCodes.indexOf(code) === -1) availableCodes.push(code);
+                });
+                $container.find('[data-hm-name]').each(function () {
+                    var name = $(this).attr('data-hm-name');
+                    if (name && availableNames.indexOf(name) === -1) availableNames.push(name);
+                });
+                console.warn('未找到匹配的数据元 诊断上下文:', {
+                    tableName: $diagTable.length ? $diagTable.attr('data-hm-datatable') : '',
+                    evaluateType: $diagTable.length ? ($diagTable.attr('evaluate-type') || 'col') : '',
+                    rowIndex: $diagRow.length ? $diagRow.index() : -1,
+                    containerTagName: $container[0] ? $container[0].tagName : '',
+                    expectedKeyCode: dataItem.keyCode,
+                    expectedKeyName: dataItem.keyName,
+                    availableKeyCodesInContainer: availableCodes,
+                    availableKeyNamesInContainer: availableNames
+                });
             }
 
         } catch (error) {
@@ -1138,131 +916,102 @@ commonHM.component['documentModel'].fn({
         var _t = this;
         _t._bindDataItem($row, dataItem);
     },
-
+    // =======================脏数据：开始=======================
+    // 快速检测 HTML 中是否存在「单 span 脏数据」：class="new-textbox" 数量 > class="new-textbox-content" 数量
     /**
-     * 查找列表类表格（优先 data-hm-table-code，其次 data-hm-datatable）
-     * @param {jQuery} $body 编辑器 body
-     * @param {String} tableCode 表格编码
-     * @returns {jQuery|null}
-     * @private
+     * 快速检测 HTML 字符串中是否可能存在「外层 new-textbox 自身携带内层属性但没有嵌套
+     * span.new-textbox-content」的单 span 脏数据。
+     * 通过 class="new-textbox" 与 class="new-textbox-content" 的计数差异判断：
+     * - 标准嵌套（每个 new-textbox 都有 new-textbox-content）计数相等或内层更多 → 无脏数据
+     * - 脏数据场景下 new-textbox 数量 > new-textbox-content 数量 → 需要走 DOM 层归一化
+     * 该检测成本极低（两次 regex 扫描），让绝大多数标准病历跳过 jQuery parse/serialize。
+     * 注意：cntContent >= cntBox 是「无脏数据」的必要条件，极端嵌套场景下可能不完全充分；
+     * DOM 层归一化函数 _normalizeNewTextboxDom 仍负责最终判定。
+     * @param {String} html HTML 字符串
+     * @returns {Boolean} 是否可能存在脏数据
      */
-    _findListTableByCode: function ($body, tableCode) {
-        var $table = $body.find('table[data-hm-table-code="' + tableCode + '"][data-hm-table-type="list"]');
-        if ($table.length === 0) {
-            $table = $body.find('table[data-hm-datatable="' + tableCode + '"][data-hm-table-type="list"]');
-        }
-        return $table.length ? $table : null;
+    _hasDirtyNewTextboxHtml: function (html) {
+        if (!html || typeof html !== 'string' || html.indexOf('new-textbox') === -1) return false;
+        var cntBox = (html.match(/class="new-textbox"/g) || []).length;
+        if (cntBox === 0) return false;
+        var cntContent = (html.match(/class="new-textbox-content"/g) || []).length;
+        return cntContent < cntBox;
     },
-
+    // =======================脏数据：结束=======================
+    // =======================归一化：开始=======================
+    // 把「外层 new-textbox 自带内层属性、无嵌套 content」的单 span 脏数据补全为标准嵌套结构
     /**
-     * 给列表类表格指定行/列设置数据元值（仅绑定目标行/列，不影响其他行/列）
-     * @param {String} tableCode 表格编码（data-hm-table-code 或 data-hm-datatable）
-     * @param {Number} rowIndex 竖向表格（evaluate-type=col）为行索引（tbody tr）；横向表格（evaluate-type=row）为数据列索引
-     * @param {Array} rowData 数据元数组，每项含 keyCode、keyValue，可选 keyName
-     * @returns {Boolean} 是否成功
+     * 归一化 new-textbox 单 span 结构：把「外层 new-textbox 自身携带本应在内层的属性、
+     * 但没有嵌套 span.new-textbox-content」的脏数据补全为标准嵌套结构。
+     * 多见于历史病历迁移 / 跨系统粘贴 / AI 草稿接口的非标准片段。
+     * 标准嵌套（外层 + 内层 + 内容）不会被改动；找不到脏数据时直接返回 false。
+     * 属性列表与 bindDatasource 兜底补全列表对齐：属于「内容节点」语义的属性都会搬迁。
+     * @param {jQuery} $root 要归一化的 jQuery 根节点
+     * @returns {Boolean} 是否做了改动
      */
-    setTableRowData: function (tableCode, rowIndex, rowData) {
-        var _t = this;
-
-        if (!tableCode) {
-            console.error('setTableRowData: tableCode 参数不能为空');
-            return false;
-        }
-        if (typeof rowIndex !== 'number' || rowIndex < 0 || rowIndex % 1 !== 0) {
-            console.error('setTableRowData: rowIndex 必须为非负整数');
-            return false;
-        }
-        if (!rowData || !Array.isArray(rowData)) {
-            console.error('setTableRowData: rowData 必须为数组');
-            return false;
-        }
-        if (rowData.length === 0) {
-            console.warn('setTableRowData: rowData 为空，未执行绑定');
-            return true;
-        }
-
-        var $body = $(_t.editor.document.getBody().$);
-        var $table = _t._findListTableByCode($body, tableCode);
-        if (!$table) {
-            console.error('setTableRowData: 未找到表格编码为 ' + tableCode + ' 的列表类表格');
-            return false;
-        }
-
-        var $tbody = $table.find('tbody');
-        if (!$tbody.length) {
-            console.error('setTableRowData: 表格中未找到 tbody');
-            return false;
-        }
-
-        var evaluateType = $table.attr('evaluate-type') || 'col';
-        var $scope;
-
-        if (evaluateType === 'col') {
-            var $rows = $tbody.find('tr');
-            if (rowIndex >= $rows.length) {
-                console.error('setTableRowData: 行索引 ' + rowIndex + ' 超出范围（共 ' + $rows.length + ' 行）');
-                return false;
+    _normalizeNewTextboxDom: function ($root) {
+        var innerAttrs = [
+            '_texttype', '_click', '_jointsymbol', '_selecttype', '_placeholder',
+            'data-hm-items', '_timetype',
+            '_qrcode_width', '_qrcode_height', '_qrcode_error_level', '_qrcode_text_position',
+            '_barcode_width', '_barcode_height', '_barcode_bar_width', '_barcode_text_position'
+        ];
+        var $spans = $root.find('span.new-textbox[data-hm-node="newtextbox"]');
+        if ($spans.length === 0) return false;
+        var touched = false;
+        $spans.each(function () {
+            var $span = $(this);
+            // 标准嵌套：已有直接子 span.new-textbox-content，跳过
+            if ($span.children('span.new-textbox-content').length > 0) return;
+            // 标志：外层是否携带任意一个内层属性
+            var hasInner = false;
+            for (var i = 0; i < innerAttrs.length; i++) {
+                if ($span.attr(innerAttrs[i]) !== undefined) { hasInner = true; break; }
             }
-            $scope = $rows.eq(rowIndex);
-            rowData.forEach(function (dataItem) {
-                if (dataItem) {
-                    _t._bindTableDataToRow($scope, dataItem);
+            if (!hasInner) return;
+            // 归一化：建内层、搬属性、搬子节点
+            // 内层 contenteditable 与标准嵌套结构一致：下拉不可编辑(false)，其余可编辑(true)。
+            // 原实现固定 false 会把纯文本等数据元整体变成不可编辑（图片删除后产生的
+            // 单 span 脏结构被归一化时，用户将无法再编辑该数据元）。
+            var _innerCE = $span.attr('_texttype') === '下拉' ? 'false' : 'true';
+            var $inner = $('<span class="new-textbox-content" contenteditable="' + _innerCE + '"></span>');
+            // 外层与标准结构一致保持 contenteditable="false"（脏数据外层缺失或为 true 时，
+            // 会出现内外两层都可编辑的错乱区域）
+            var _outerCE = $span.attr('contenteditable');
+            if (_outerCE !== 'false') {
+                $span.attr('contenteditable', 'false');
+            }
+            innerAttrs.forEach(function (k) {
+                var v = $span.attr(k);
+                if (v !== undefined) {
+                    $inner.attr(k, v);
+                    $span.removeAttr(k);
                 }
             });
-        } else {
-            var $firstRow = $tbody.find('tr:first');
-            var dataColumnCount = $firstRow.find('td:not(.hm-table-horizontal-header)').length;
-            if (rowIndex >= dataColumnCount) {
-                console.error('setTableRowData: 列索引 ' + rowIndex + ' 超出范围（共 ' + dataColumnCount + ' 列）');
-                return false;
+            while ($span[0].firstChild) {
+                $inner[0].appendChild($span[0].firstChild);
             }
-            var $allRows = $tbody.find('tr');
-            $scope = $();
-            rowData.forEach(function (dataItem, dataRowIndex) {
-                if (!dataItem || dataRowIndex >= $allRows.length) {
-                    return;
-                }
-                var $currentRow = $allRows.eq(dataRowIndex);
-                var $currentCell = $currentRow.find('td:not(.hm-table-horizontal-header)').eq(rowIndex);
-                if ($currentCell.length > 0) {
-                    _t._bindDataItem($currentCell, dataItem);
-                    $scope = $scope.add($currentCell);
-                }
-            });
-        }
-
-        if ($scope && $scope.length) {
-            _t._applyTimeboxAutoshowCurtime($scope);
-        }
-        return true;
-    },
-
-    /**
-     * 给列表类表格指定 tr 行设置数据元值（直接绑定到行 DOM，不依赖行索引查找）
-     * @param {HTMLElement|jQuery} row 表格行 tr 元素
-     * @param {Array} rowData 数据元数组
-     * @returns {Boolean} 是否成功
-     */
-    setTableRowDataOnRow: function (row, rowData) {
-        var _t = this;
-        var $row = $(row);
-        if (!$row.length) {
-            console.error('setTableRowDataOnRow: row 无效');
-            return false;
-        }
-        if (!rowData || !Array.isArray(rowData)) {
-            console.error('setTableRowDataOnRow: rowData 必须为数组');
-            return false;
-        }
-        rowData.forEach(function (dataItem) {
-            if (dataItem) {
-                _t._bindTableDataToRow($row, dataItem);
-            }
+            $span.append($inner);
+            touched = true;
         });
-        _t._applyTimeboxAutoshowCurtime($row);
-        return true;
+        return touched;
     },
-
+    // =======================归一化：结束=======================
+    // =======================归一化：开始=======================
+    /**
+     * HTML 字符串版归一化：找不到脏数据时返回原字符串，避免无谓的 jQuery 解析/序列化引入差异。
+     * 调用方负责处理 body 包装：本函数假定 html 是 div context 下的片段，
+     * 如含 body 标签请自行先转 div 再传入（或直接使用 _normalizeNewTextboxDom 处理已解析的 jQuery）。
+     * @param {String} html HTML 字符串
+     * @returns {String} 归一化后的 HTML 字符串
+     */
+    _normalizeNewTextboxHtml: function (html) {
+        if (!this._hasDirtyNewTextboxHtml(html)) return html;
+        var $root = $('<div>' + html + '</div>');
+        if (!this._normalizeNewTextboxDom($root)) return html;
+        return $root.html();
+    },
+    // =======================归一化：结束=======================
     // 设置数据元的值
     bindDatasource: function (datasourceNode, nodeType, bindVal, imgFlag) {
         var _t = this;
@@ -1270,15 +1019,56 @@ commonHM.component['documentModel'].fn({
             case 'newtextbox':
                 var _placeholder = datasourceNode.attr('_placeholder') || '';
                 var newtextboxcontent = datasourceNode.find("span.new-textbox-content");
+                // =======================脏数据：开始=======================
+                // 【脏数据兼容】单 span 结构：new-textbox 自身携带 _texttype 等本应在内层的属性，
+                // 但没有嵌套 span.new-textbox-content。多见于历史病历迁移 / 跨系统粘贴 / AI 草稿接口
+                // 生成的非标准片段。此时 find() 命中数为 0，整段 case 会被跳过，bindVal 写不进去。
+                // 把 datasourceNode 自己当作「内容节点」用，让后续绑值 / 占位标记 / 关联项处理逻辑照常运行。
+                if (newtextboxcontent.length === 0 && datasourceNode.attr('_texttype')) {
+                    newtextboxcontent = datasourceNode;
+                }
+                // =======================脏数据：结束=======================
                 if (newtextboxcontent.length > 0) {
                     if (!imgFlag) {
                         bindVal = wrapperUtils.formatTimeTextVal(bindVal, newtextboxcontent.attr('_timetype'));
                     }
-                    if (bindVal) {
+                    // =======================脏数据：开始=======================
+                    // 兜底修复：内层 new-textbox-content 缺 _texttype 时，从外层 datasourceNode 把下拉/诊断/手术等关键属性补全
+                    // 场景：保存到 HTML 后内层属性可能被剥离（外层保留），导致点击事件被 return。
+                    // 监听器依赖内层 _texttype 等属性判断是否弹下拉；外层完整时把属性补回内层即可。
+                    if (!newtextboxcontent.attr('_texttype') && datasourceNode.attr('_texttype')) {
+                        var _outerType = datasourceNode.attr('_texttype');
+                        newtextboxcontent.attr('_texttype', _outerType);
+                        if (_outerType == '下拉') {
+                            ['_click', '_jointsymbol', '_selecttype', '_placeholder', 'data-hm-items'].forEach(function (k) {
+                                if (newtextboxcontent.attr(k) === undefined && datasourceNode.attr(k) !== undefined) {
+                                    newtextboxcontent.attr(k, datasourceNode.attr(k));
+                                }
+                            });
+                        }
+                    }
+                    // =======================脏数据：结束=======================
+                    // =======================归一化：开始=======================
+                    var _texttype = newtextboxcontent.attr('_texttype');
+
+                    // 下拉类型空值归一化为 placeholder 提示符：
+                    // - 空对象 {code:'',value:''} 是真值，会误入下拉分支写空内容
+                    // - 字符串 '-' 是医疗系统「未填」约定值
+                    // 统一归一化为 _placeholder，让下游 html(_placeholder) 显示 placeholder 文字。
+                    if (_texttype == '下拉' && bindVal && (
+                        (typeof bindVal === 'object' && !bindVal.value && !bindVal.code) ||
+                        (typeof bindVal === 'string' && bindVal === '-')
+                    )) {
+                        bindVal = '';
+                        newtextboxcontent.attr('_placeholdertext', 'true');
+                    }else if (bindVal) {
+
                         newtextboxcontent.removeAttr('_placeholdertext');
                     } else {
+
                         newtextboxcontent.attr('_placeholdertext', 'true');
                     }
+                    // =======================归一化：结束=======================
                     var _texttype = newtextboxcontent.attr('_texttype');
 
 
@@ -1303,7 +1093,7 @@ commonHM.component['documentModel'].fn({
                             newtextboxcontent.html(bindVal);
                         });
                     }
-                    // 处理条形码生成  
+                    // 处理条形码生成
                     else if (_texttype == '条形码' && bindVal && !imgFlag) {
                         var barcodeWidth = newtextboxcontent.attr('_barcode_width') || '200';
                         var barcodeHeight = newtextboxcontent.attr('_barcode_height') || '50';
@@ -1313,7 +1103,6 @@ commonHM.component['documentModel'].fn({
                         // 使用同步条形码生成方法
                         try {
                             if (_t.generateBarcodeSync) {
-                                newtextboxcontent.attr('_bindvalue', bindVal);
                                 var barcodeHTML = _t.generateBarcodeSync({
                                     text: bindVal,
                                     width: barcodeWidth,
@@ -1333,27 +1122,33 @@ commonHM.component['documentModel'].fn({
                             newtextboxcontent.html(bindVal);
                         }
                     } else {
-                        if (_texttype == '下拉' && bindVal) {
-                            var selectType = newtextboxcontent.attr('_selectType');
-                            var jointsymbol = newtextboxcontent.attr('_jointSymbol') || ',';
-                            var items = newtextboxcontent.attr('data-hm-items').split('#');
-                            // 判断是否是带编码选项
-                            var items0 = items[0].match(/(.+)\((.*?)\)\s*$/);
-                            if (items0 && items0.length == 3) {
-                                // 带编码选项，绑定code和value值 （移除之前根据value查找code 逻辑）
-                                if (selectType == '单选') {
-                                    newtextboxcontent.attr('code', bindVal.code);
-                                    newtextboxcontent.html(bindVal.value);
-                                } else {
-                                    newtextboxcontent.attr('code', bindVal.code && bindVal.code.join(jointsymbol));
-                                    newtextboxcontent.html(bindVal.value && bindVal.value.join(jointsymbol));
+                        if (_texttype == '下拉') {
+                            if(bindVal && typeof bindVal === 'object') {
+                                var selectType = newtextboxcontent.attr('_selectType');
+                                var jointsymbol = newtextboxcontent.attr('_jointSymbol') || ',';
+                                var items = newtextboxcontent.attr('data-hm-items').split('#');
+                                // 判断是否是带编码选项
+                                var items0 = items[0].match(/(.+)\((.*?)\)\s*$/);
+                                if (items0 && items0.length == 3) {
+                                    // 带编码选项，绑定code和value值 （移除之前根据value查找code 逻辑）
+                                    if (selectType == '单选') {
+                                        newtextboxcontent.attr('code', bindVal.code);
+                                        newtextboxcontent.html(bindVal.value);
+                                    } else {
+                                        newtextboxcontent.attr('code', bindVal.code && bindVal.code.join(jointsymbol));
+                                        newtextboxcontent.html(bindVal.value && bindVal.value.join(jointsymbol));
+                                    }
+                                } else { // 不带编码选项
+                                    newtextboxcontent.html(bindVal.value || bindVal.code); // 直接绑定bindVal的value或code值
                                 }
-                            } else { // 不带编码选项
-                                newtextboxcontent.html(bindVal.value || bindVal.code); // 直接绑定bindVal的value或code值
                             }
                         } else { // 除下拉以外的类型，直接绑定bindVal值
+                            if (bindVal || _placeholder) {
                             newtextboxcontent.html(bindVal || _placeholder);
                         }
+                            // bindVal 与 _placeholder 均为空时保留节点原有内容（模板中的占位文字），
+                            // 避免 html('') 把占位符清空
+                    }
                     }
                     _handleRelevance(datasourceNode);
                 }
@@ -1372,7 +1167,8 @@ commonHM.component['documentModel'].fn({
                     console.log(bindVal);
                     console.log(e);
                 }
-                datasourceNode.text(bindVal);
+                // 插入占位符，不会被自动清理
+                datasourceNode.text(bindVal || '\u200B');
                 break;
             case 'searchbox':
                 // var searchOption = datasourceNode.attr('_searchoption') || '';
@@ -1420,8 +1216,8 @@ commonHM.component['documentModel'].fn({
                 var $ds = datasourceNode;
                 $ds.find('span[data-hm-node="checkbox"]:not([data-hm-node="labelbox"])').removeClass('fa-check-square-o').addClass('fa-square-o').removeAttr('_selected');
                 for (var j = 0; j < newArr.length; j++) {
-                    // 对值进行转义处理
-                    var escapedVal = newArr[j].replace(/[!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~]/g, "\\$&");
+                    // 对值进行转义处理（value 可能为数字/对象等非字符串，先转字符串避免 replace 报错）
+                    var escapedVal = String(newArr[j] == null ? '' : newArr[j]).replace(/[!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~]/g, "\\$&");
                     $ds.find('[data-hm-itemname="' + escapedVal + '"]:not([data-hm-node="labelbox"])').removeClass('fa-square-o').addClass('fa-check-square-o').attr('_selected', 'true');
                 }
                 break;
@@ -1429,7 +1225,8 @@ commonHM.component['documentModel'].fn({
                 var $ds = datasourceNode;
                 var val = bindVal.code ? bindVal.value + '(' + bindVal.code + ')' : bindVal.value;
                 $ds.find('span[data-hm-node="radiobox"]:not([data-hm-node="labelbox"])').removeClass('fa-dot-circle-o').addClass('fa-circle-o').removeAttr('_selected');
-                var escapedVal = val.replace(/[!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~]/g, "\\$&");
+                // value 可能为数字/对象等非字符串（如 code 为空时 val 直接取 value），先转字符串避免 replace 报错
+                var escapedVal = String(val == null ? '' : val).replace(/[!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~]/g, "\\$&");
                 $ds.find('span[data-hm-node="radiobox"][data-hm-itemname="' + escapedVal + '"]:not([data-hm-node="labelbox"])').addClass('fa-dot-circle-o').attr('_selected', 'true');
                 break;
             case 'textboxwidget':
@@ -1639,33 +1436,6 @@ commonHM.component['documentModel'].fn({
             }
         });
     },
-
-    /**
-     * 触发列表表格新增行回调（HMConfig.onTableRowAdd / 模板 window.onTableRowAdd）
-     * @param {Object} ctx 回调上下文：tableCode、tableName、rowIndex、$row、$table
-     * @private
-     */
-    _fireOnTableRowAdd: function (ctx) {
-        var _t = this;
-        var hmEditor = _t.$parent;
-        var fn = hmEditor && hmEditor.editor && hmEditor.editor.HMConfig
-            ? hmEditor.editor.HMConfig.onTableRowAdd
-            : null;
-        if (typeof fn !== 'function' && typeof window.onTableRowAdd === 'function') {
-            fn = window.onTableRowAdd;
-        }
-        if (typeof fn !== 'function') {
-            return;
-        }
-        try {
-            var result = fn.call(hmEditor, ctx, hmEditor);
-            if (result && Array.isArray(result) && result.length && ctx.$row) {
-                _t.setTableRowDataOnRow(ctx.$row, result);
-            }
-        } catch (callbackError) {
-            console.error('onTableRowAdd 执行失败:', callbackError);
-        }
-    },
     /**
      * 初始化将带有不可编辑属性数据元状态置为不可编辑状态
      * @param {jQuery} $body 编辑器body元素
@@ -1731,6 +1501,15 @@ commonHM.component['documentModel'].fn({
         $body.find('.emrWidget').each(function () {
             _t.editor.widgets.initOn(new CKEDITOR.dom.element(this), 'emrWidget');
         });
+        // 初始化文档中已有的图片widget（image2），使加载的图片具备完整的widget能力
+        // （选中、右键菜单剪切/删除等）。文档加载绕过setData直接搬DOM，widget不会自动
+        // upcast：裸 img（data-widget 属性、无 wrapper）用 initOn 包裹初始化；
+        // 已有 wrapper 但无实例的（如模板中保存的完整结构）由 checkWidgets 补建实例，
+        // 与 undo/redo 恢复（contentDomInvalidated -> checkWidgets）走同一路径。
+        $body.find('[data-widget="image"]').each(function () {
+            _t.editor.widgets.initOn(new CKEDITOR.dom.element(this), 'image');
+        });
+        _t.editor.widgets.checkWidgets();
 
         // 为现有的图片添加拖拽功能
         _t.initExistingImageResizers($body);
@@ -1913,10 +1692,7 @@ commonHM.component['documentModel'].fn({
         // $body.find('table[data-hm-datatable][data-hm-table-type="list"]').on('mouseleave','tbody tr',function(){
         var colTable = 'table[data-hm-datatable][data-hm-table-type="list"][evaluate-type="col"]';
         var rowTable = 'table[data-hm-datatable][data-hm-table-type="list"][evaluate-type="row"]';
-        $body.on('mouseleave', colTable + ' tbody tr', function (event) {
-                if (_t._shouldKeepTableActions(event.relatedTarget)) {
-                    return;
-                }
+        $body.on('mouseleave', colTable + ' tbody tr', function () {
                 $body.find('.table-row-actions').remove();
             }).on('mouseenter.tableActions', colTable + ' tbody tr', function (event) {
                 // 使用 event.target 来获取实际触发的元素
@@ -1924,9 +1700,6 @@ commonHM.component['documentModel'].fn({
                 _t._handleTrMouseEnter($tr[0], $tr.index());
             }).off('click.tableActions', colTable + ' .add-row-icon')
             .on('click.tableActions', colTable + ' .add-row-icon', function (e) {
-                if ($(this).hasClass('disabled')) {
-                    return;
-                }
                 e.stopPropagation();
                 e.preventDefault();
                 _t._addTableRow($(this).closest('tr'));
@@ -1945,10 +1718,7 @@ commonHM.component['documentModel'].fn({
                 e.stopPropagation();
                 e.preventDefault();
                 _t._deleteTableCell($(this).parents('td'));
-            }).on('mouseleave', rowTable + ' tbody td', function (event) {
-                if (_t._shouldKeepTableActions(event.relatedTarget)) {
-                    return;
-                }
+            }).on('mouseleave', rowTable + ' tbody td', function () {
                 $body.find('.table-cell-actions').remove();
             });
 
@@ -2056,17 +1826,6 @@ commonHM.component['documentModel'].fn({
                 }
             }
         });
-    },
-
-    /**
-     * 判断鼠标移出表格行/单元格时是否应保留操作图标。
-     * 列宽拖拽热区（data-cke-temp）覆盖在表格上方，移入时会误触发 mouseleave。
-     */
-    _shouldKeepTableActions: function (relatedTarget) {
-        if (!relatedTarget) {
-            return false;
-        }
-        return $(relatedTarget).closest('.table-row-actions, .table-cell-actions, [data-cke-temp]').length > 0;
     },
 
     _handleTrMouseEnter: function (tr, index) {
@@ -2565,15 +2324,6 @@ commonHM.component['documentModel'].fn({
 
             // 新增行后：对勾选了【默认当前时间】的日期数据元填入当前时间 (AIED-337)
             _t._applyTimeboxAutoshowCurtime($newRow);
-
-            var $table = $currentRow.closest('table');
-            _t._fireOnTableRowAdd({
-                tableCode: $table.attr('data-hm-table-code') || $table.attr('data-hm-datatable') || '',
-                tableName: $table.attr('data-hm-datatable') || '',
-                rowIndex: $newRow.index(),
-                $row: $newRow[0],
-                $table: $table[0]
-            });
         } catch (error) {
             console.warn('增加表格行时发生错误:', error);
         }
@@ -3659,6 +3409,10 @@ commonHM.component['documentModel'].fn({
         } else if (item.类型 === 'expressionbox' && item.值) {
             // 处理expressionbox对象
             result.html = this.createExpressionBoxWidget(item);
+        } else if (item.类型 === 'img' || item.类型 === 'expressionbox') {
+            // 图片/表达式对象但值为空（如图片被删除后残留的空对象）：
+            // 输出空内容而不是 String(item) 的 "[object Object]"，避免数据元显示异常文本
+            result.html = '';
         } else {
             // 其他对象转为字符串
             result.html = String(item);

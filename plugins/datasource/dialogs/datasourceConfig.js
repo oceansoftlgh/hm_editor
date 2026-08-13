@@ -67,7 +67,7 @@ CKEDITOR.dialog.add('datasourceConfig', function (editor) {
                 var $doc = $(editor.document.$);
                 var $headerTables = $doc.find('table[_paperheader="true"]');
                 var existingElements = $doc.find('[data-hm-code="' + d['data-hm-code'] + '"]').not($headerTables.find('[data-hm-code="' + d['data-hm-code'] + '"]'));
-                
+
                 // 如果是编辑模式，排除当前正在编辑的元素
                 if (!this.insertMode) {
                     var currentElement = editor.contextTargetElement;
@@ -81,7 +81,7 @@ CKEDITOR.dialog.add('datasourceConfig', function (editor) {
                     if (td && td.hasAttribute('data-hm-node')) {
                         currentElement = td;
                     }
-                    
+
                     // 排除当前元素
                     if (currentElement && currentElement.$) {
                         existingElements = existingElements.filter(function() {
@@ -89,7 +89,7 @@ CKEDITOR.dialog.add('datasourceConfig', function (editor) {
                         });
                     }
                 }
-                
+
                 // 如果找到相同编码的数据元，提示并阻止保存
                 if (existingElements.length > 0) {
                     editor.showNotification("已存在相同编码的数据元，编码不能重复");
@@ -112,8 +112,8 @@ CKEDITOR.dialog.add('datasourceConfig', function (editor) {
                     return false;
                 }
             }
-            
-            
+
+
 
             if (!this.insertMode) {
                 _handleEdit(editor, d);
@@ -165,12 +165,12 @@ function _handleEdit(editor, sourceData) {
     var element = editor.contextTargetElement;
     if (!element.hasAttribute('data-hm-node') && !element.is('button')) {
         var $element = $(element.$).closest('[data-hm-node]');
-        
+
         // 如果找到了带data-hm-node的元素
         if ($element.length) {
             element = new CKEDITOR.dom.element($element[0]);
-            
-        } 
+
+        }
     }
     var td = editor.elementPath().contains('td');
     if (td && td.hasAttribute('data-hm-node')) element = td;
@@ -178,16 +178,16 @@ function _handleEdit(editor, sourceData) {
     // 更新节点类型
     var oldType = element.getAttribute('data-hm-node');
     var newType = sourceData['data-hm-node'];
-    
+
     // 如果类型发生变化，需要重新创建节点
     if (oldType !== newType) {
         // 保存原节点的基本属性
         var oldId = element.getAttribute('data-hm-id');
         sourceData['data-hm-id'] = oldId; // 保持原有ID
-        
+
         // 使用_handleCreate创建新节点，传入isEdit=true表示编辑模式
         var newNode = _handleCreate(editor, sourceData, true);
-        
+
         if (newNode) {
             // 如果原节点是单元类型，需要特殊处理
             if (oldType === 'cellbox') {
@@ -396,7 +396,7 @@ function _handleEdit(editor, sourceData) {
                 var errorLevel = sourceData._qrcode_error_level || 'M';
                 var textPosition = sourceData._qrcode_text_position || 'bottom';
                 var previewText = '123456';
-                
+
                 // 尝试获取编辑器的二维码生成方法并更新预览
                 try {
                     var _t = window.hmEditor.documentModel;
@@ -427,7 +427,7 @@ function _handleEdit(editor, sourceData) {
                 var barWidth = sourceData._barcode_bar_width || '2';
                 var textPosition = sourceData._barcode_text_position || 'bottom';
                 var previewText = '123456';
-                
+
                 // 尝试获取编辑器的条形码生成方法并更新预览
                 try {
                     var _t = window.hmEditor.documentModel;
@@ -513,7 +513,7 @@ function removeDefineAttr(element) {
 }
 
 function _handleCreate(editor, sourceData, isEdit) {
-    // sourceData.autoLable = true; 
+    // sourceData.autoLable = true;
 
     // 如果不是编辑模式，才检查插入位置的合法性
     if (!isEdit) {
@@ -523,11 +523,11 @@ function _handleCreate(editor, sourceData, isEdit) {
             return;
         }
         var td = editor.elementPath().contains('td');
-        if (td && td.hasAttribute('data-hm-node')){ 
+        if (td && td.hasAttribute('data-hm-node')){
             editor.showNotification('无法插入数据元到[非嵌套类型数据元内]');
             return;
         }
-        
+
         // 定位标识不能嵌套在数据元内部
         if (sourceData['data-hm-node'] === 'positionnode') {
             var selection = editor.getSelection();
@@ -545,7 +545,7 @@ function _handleCreate(editor, sourceData, isEdit) {
             }
         }
     }
-  
+
         var node = new CKEDITOR.dom.element('span');
         node.setText('\u200B');
         //node.setAttribute('data-hm-node', sourceData['data-hm-node']);
@@ -570,14 +570,14 @@ function _handleCreate(editor, sourceData, isEdit) {
         editor.editable().insertText('\u200B');
 
         // 自动插入labelbox标题
-        if (sourceData['autoLable'] && sourceData['data-hm-node'] != 'labelbox') { 
+        if (sourceData['autoLable'] && sourceData['data-hm-node'] != 'labelbox') {
             var labelboxNode = new CKEDITOR.dom.element('span');
             labelboxNode.setText('\u200B');
             labelboxNode.setAttribute('contentEditable', 'false');
             labelboxNode.setAttribute('data-hm-id', wrapperUtils.getGUID());
             labelboxNode.setAttribute('data-hm-node', 'labelbox');
             labelboxNode.setAttribute('data-hm-name', sourceData['data-hm-name'] + ':');
-            labelboxNode.setText(sourceData['data-hm-name'] + ':');
+            labelboxNode.setText(sourceData['_placeholder'] + ':');
             editor.editable().insertElement(labelboxNode);
         }
         var resultNode;
@@ -590,7 +590,7 @@ function _handleCreate(editor, sourceData, isEdit) {
                 positionNode.setAttribute('data-hm-node', 'positionnode');
                 positionNode.setAttribute('data-hm-name', sourceData['data-hm-name']);
                 positionNode.setAttribute('data-hm-id', wrapperUtils.getGUID());
-                
+
                 if (!isEdit) {
                     editor.editable().insertElement(positionNode);
                     editor.editable().insertText('\u200B');
@@ -598,7 +598,7 @@ function _handleCreate(editor, sourceData, isEdit) {
                     return; // 已经处理了插入，直接返回
                 } else {
                     // 编辑模式下，设置 resultNode 并 break，让函数正常返回
-                    resultNode = positionNode; 
+                    resultNode = positionNode;
                 }
                 break;
             case 'labelbox':
@@ -632,7 +632,7 @@ function _handleCreate(editor, sourceData, isEdit) {
                 if (sourceData._texttype == '下拉') {
                     sourceData['data-hm-items'] && newtextPlaceholder.setAttribute('data-hm-items', sourceData['data-hm-items']);
                 }
-                
+
                 // 如果是二维码类型，创建预览二维码
                 if (sourceData._texttype == '二维码') {
                     // 获取二维码配置参数
@@ -641,7 +641,7 @@ function _handleCreate(editor, sourceData, isEdit) {
                     var errorLevel = sourceData._qrcode_error_level || 'M';
                     var textPosition = sourceData._qrcode_text_position || 'bottom';
                     var previewText = '123456';
-                    
+
                     // 尝试获取编辑器的二维码生成方法并生成预览
                     try {
                         var _t = window.hmEditor.documentModel;
@@ -672,7 +672,7 @@ function _handleCreate(editor, sourceData, isEdit) {
                     var barWidth = sourceData._barcode_bar_width || '2';
                     var textPosition = sourceData._barcode_text_position || 'bottom';
                     var previewText = '123456';
-                    
+
                     // 尝试获取编辑器的条形码生成方法并生成预览
                     try {
                         var _t = window.hmEditor.documentModel;
@@ -826,7 +826,7 @@ function _handleCreate(editor, sourceData, isEdit) {
                 editor.showNotification('请选择一种数据元类型');
                 break;
         }
-        
+
         // 如果不是编辑模式，插入节点
         if (!isEdit && resultNode) {
             if (sourceData['data-hm-node'] !== 'cellbox') {
@@ -840,7 +840,7 @@ function _handleCreate(editor, sourceData, isEdit) {
         if (isEdit) {
             return resultNode;
         }
-    
+
 
 }
 
@@ -953,7 +953,7 @@ function _handleRelevance(node) {
         val = nodeVal.value.replace(zeroWidthChar, '');
     }else{
         val = nodeVal.replace(zeroWidthChar, '');
-    } 
+    }
     // console.log('值------------' + val)
     var valArr = [];
     var nodeType = node.attr('data-hm-node');

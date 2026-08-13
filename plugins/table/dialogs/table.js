@@ -234,7 +234,7 @@
                         tableTypeElement.onChange();
                     }, 10);
                 }
-
+                
                 var whiteSpaceElement = this.getContentElement('info', 'white-space');
                 if (whiteSpaceElement) {
                     setTimeout(function () {
@@ -780,7 +780,7 @@
                                 },
                                 commit: function (data, selectedTable) {
                                     refreshHmLinedCellFromDialog(this.getDialog(), selectedTable, this.getDialog().getParentEditor());
-                                }
+                            }
                             }
                             // {
                             // 	id: 'evaluate-col-num',

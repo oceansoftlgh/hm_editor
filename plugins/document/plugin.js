@@ -2060,7 +2060,7 @@ CKEDITOR.plugins.add('document', {
             if (type == 'del' && range0.collapsed) {
                 return false;
             }
-
+            
             var selection = editor.getSelection(),
                 selectionHtml,
                 startEle = range0.startContainer,
@@ -2095,7 +2095,7 @@ CKEDITOR.plugins.add('document', {
                     }
                 }
             }
-
+            
             if (startEle && startEle.type != CKEDITOR.NODE_ELEMENT) {
                 startEle = startEle.getParent();
             }
