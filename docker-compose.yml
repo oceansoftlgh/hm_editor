@@ -1,0 +1,49 @@
+version: "3.8"
+
+# =========================================================
+# 惠每电子病历编辑器 HmEditor — Docker Compose（开发/默认）
+# =========================================================
+# 使用方式：
+#   首次启动（构建镜像）：
+#     docker compose build
+#     docker compose up -d
+#
+#   快速启动（使用已构建的镜像）：
+#     docker compose up -d
+#
+#   查看日志：
+#     docker compose logs -f
+#
+#   停止：
+#     docker compose down
+#
+# 访问地址：
+#   http://localhost:3071/hmEditor/demo/index.html
+# =========================================================
+
+services:
+  hmeditor:
+    image: ysk/hmeditor:latest
+    container_name: hm-editor
+    ports:
+      # 映射端口：宿主机端口:容器内端口
+      - "3071:3071"
+    environment:
+      # 服务端口（与 Dockerfile EXPOSE 保持一致）
+      - PORT=3071
+      - NODE_ENV=development
+    # 开发模式下挂载源码目录（方便热重载，生产环境建议去掉）
+    volumes:
+      - ./hmEditor:/app/hmEditor
+      - ./plugins:/app/plugins
+      - ./src:/app/src
+      - ./vendor:/app/vendor
+      - ./lang:/app/lang
+    # 容器健康检查
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3071/hmEditor/demo/index.html"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped

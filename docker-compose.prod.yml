@@ -1,0 +1,90 @@
+version: "3.8"
+
+# =========================================================
+# 惠每电子病历编辑器 HmEditor — Docker Compose（生产部署）
+# =========================================================
+# 使用方式：
+#   首次部署（构建镜像并启动）：
+#     docker compose -f docker-compose.prod.yml build
+#     docker compose -f docker-compose.prod.yml up -d
+#
+#   更新部署（重新构建并滚动更新）：
+#     docker compose -f docker-compose.prod.yml build
+#     docker compose -f docker-compose.prod.yml up -d --force-recreate
+#
+#   查看运行状态：
+#     docker compose -f docker-compose.prod.yml ps
+#     docker compose -f docker-compose.prod.yml logs -f
+#
+#   停止服务：
+#     docker compose -f docker-compose.prod.yml down
+#
+# 访问地址：
+#   http://<宿主机IP>:3071/hmEditor/demo/index.html
+# =========================================================
+
+services:
+  hmeditor:
+    # 构建配置：使用项目根目录下的 Dockerfile
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # 生产构建参数
+      args:
+        - NODE_ENV=production
+    image: hmeditor/hm-editor:${HM_EDITOR_TAG:-latest}
+    container_name: hm-editor-prod
+    # 生产环境使用 restart: always 确保自动重启
+    restart: always
+    ports:
+      # 映射端口，可通过环境变量覆盖宿主机端口
+      - "${HOST_PORT:-3071}:3071"
+    environment:
+      - PORT=3071
+      - NODE_ENV=production
+      # ---- 可按需添加以下环境变量 ----
+      # - DB_HOST=your-db-host
+      # - DB_PORT=3306
+      # - DB_USER=your-db-user
+      # - DB_PASSWORD=your-db-password
+      # - AI_API_KEY=your-ai-service-key
+      # - AI_API_URL=https://your-ai-service
+    # 生产环境不建议挂载源码目录，使用镜像内构建产物即可
+    # volumes:
+    #   - ./data/logs:/app/logs       # 持久化日志
+    #   - ./data/uploads:/app/uploads  # 持久化上传文件
+    #   - ./config:/app/config         # 外部配置文件
+    # 资源限制（根据实际服务器配置调整）
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: "2G"
+        reservations:
+          cpus: "0.5"
+          memory: "512M"
+    # 健康检查
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --spider -q http://localhost:3071/hmEditor/demo/index.html || exit 1"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    # 日志配置
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # 网络配置
+    networks:
+      - hm-editor-network
+
+# 自定义网络，便于与其他服务（数据库、AI 服务等）互联
+networks:
+  hm-editor-network:
+    driver: bridge

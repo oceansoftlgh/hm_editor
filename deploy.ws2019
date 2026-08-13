@@ -1,0 +1,168 @@
+# =============================================================================
+# HmEditor — Windows Server 2019 发布部署文档
+# 适用版本: 2.2.3
+# 最后更新: 2026-06-27
+# =============================================================================
+#
+# 前置条件: 已在开发机上执行 grunt release，产出目录为 dev/builder/release/ckeditor/
+# 本服务器仅部署运行，不进行源码构建。
+#
+# =============================================================================
+# 一、所需软件清单
+# =============================================================================
+#
+# [必装] Node.js 18.20.x (LTS)
+#   下载: https://nodejs.org/dist/latest-v18.x/
+#   安装: node-v18.20.x-x64.msi → 勾选 "Add to PATH"
+#   验证: node --version  →  v18.20.x
+#         npm --version   →  10.x
+#
+# [必装] wkhtmltopdf 0.12.6
+#   下载: https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6-1/wkhtmltox-0.12.6-1.msvc2015-win64.exe
+#   安装: 默认路径 C:\Program Files\wkhtmltopdf\bin\
+#   配置: 将 C:\Program Files\wkhtmltopdf\bin 加入系统 PATH 环境变量
+#   验证: wkhtmltopdf --version  →  0.12.6
+#
+# [必装] Visual C++ Redistributable (2015-2022)
+#   下载: https://aka.ms/vs/17/release/vc_redist.x64.exe
+#   安装: 直接运行，默认安装
+#
+# [按需] Visual Studio 2019 Build Tools
+#   场景: 仅当 canvas@3.x 原生模块编译失败时需要
+#   下载: https://visualstudio.microsoft.com/zh-hans/downloads/#build-tools-for-visual-studio-2019
+#   安装: vs_BuildTools.exe → 勾选 "使用 C++ 的桌面开发" + Windows 10 SDK
+#   备注: 若不需要 mock 服务图表生成功能，可设 --ignore-scripts 跳过
+#
+# [按需] PM2 (进程管理，推荐生产使用)
+#   安装: npm i -g pm2
+#   用途: 进程守护、开机自启、日志管理
+#
+# =============================================================================
+# 二、发布目录结构
+# =============================================================================
+#
+# 将以下目录/文件从开发机复制到服务器 C:\hmeditor\:
+#
+# hmEditor/               ← 前端 SDK（iframe、demo）
+# editorDist/             ← 编译后的前端资源（grunt release 产出）
+# index.js                ← 服务入口
+# src/                    ← 后端路由
+# public/                 ← 图表图片存储目录
+# album/                  ← 图册（按需）
+# album_public/           ← 图册模板（按需）
+# fontPackage/            ← 中文字体（SimHei、SimSun、YaHei 等）
+# fonts/                  ← FontAwesome 等图标字体
+# vendor/                 ← Bootstrap、ECharts、jQuery 等第三方库
+# styles/                 ← 样式文件
+# img/                    ← 图片资源
+# print.css               ← 打印样式
+# tmp/                    ← 临时文件目录（运行时创建）
+# logs/                   ← 日志目录（运行时创建）
+#
+# 不复制（服务器上重新生成）:
+#   node_modules/         → npm install --production 安装
+#
+# =============================================================================
+# 三、首次部署步骤 (PowerShell 管理员)
+# =============================================================================
+#
+# --- 3.1 安装以上软件 ---
+# 见第一章，按顺序安装后重启服务器或重启终端。
+#
+# --- 3.2 部署文件 ---
+# 将开发机 dev/builder/release/ckeditor/ 下的内容
+# + 项目根目录的 hmEditor/、public/、fontPackage/、fonts/、vendor/、styles/、img/、print.css
+# 复制到目标目录，例如 C:\hmeditor
+#
+# --- 3.3 安装生产依赖 ---
+# cd C:\hmeditor
+# npm install --production
+#
+# 若 canvas 编译报错（非必需功能），可跳过原生编译:
+# npm install --production --ignore-scripts
+# （注: 跳过脚本后 mock 服务的图表生成接口不可用，其他功能正常）
+#
+# --- 3.4 开放防火墙端口 ---
+# netsh advfirewall firewall add rule name="HmEditor 3071" dir=in action=allow protocol=TCP localport=3071
+#
+# --- 3.5 启动服务 ---
+# node index.js
+#
+# --- 3.6 验证 ---
+# 浏览器打开 http://localhost:3071/hmEditor/demo/index.html
+# 页面应正常加载，编辑器可正常操作。
+#
+# =============================================================================
+# 四、生产环境启动 (PM2)
+# =============================================================================
+#
+# 安装 PM2:
+#   npm i -g pm2
+#
+# 启动:
+#   cd C:\hmeditor
+#   pm2 start index.js --name hmEditor --max-memory-restart 1G
+#
+# 保存进程列表（重启后自动恢复）:
+#   pm2 save
+#   pm2 startup
+#   （执行 pm2 startup 后会提示一条命令，以管理员身份复制执行即可注册为系统服务）
+#
+# 常用命令:
+#   pm2 status             查看状态
+#   pm2 logs hmEditor      查看日志
+#   pm2 restart hmEditor   重启
+#   pm2 stop hmEditor      停止
+#
+# =============================================================================
+# 五、配置文件说明
+# =============================================================================
+#
+# 端口配置: 通过环境变量 PORT 设置，默认 3071
+#   临时修改: set PORT=8080 && node index.js
+#   永久修改: 在 pm2 启动命令中 --port 8080，或在系统环境变量中添加 PORT=8080
+#
+# 环境模式: NODE_ENV=production（默认）、dev、test
+#   set NODE_ENV=production
+#
+# =============================================================================
+# 六、常见问题
+# =============================================================================
+#
+# Q: 启动报错 "Cannot find module 'wkhtmltopdf'"
+# A: 检查 wkhtmltopdf 是否安装，以及 PATH 环境变量是否包含其安装目录。
+#    安装后需重启终端/服务器才能生效。
+#
+# Q: 启动报错 "The specified module could not be found" (canvas)
+# A: canvas@3.x 原生模块编译失败。解决方案:
+#    方案1: 安装 VS 2019 Build Tools 后重新 npm install
+#    方案2: npm install canvas@2.11.2（v2 对 Windows 兼容性更好）
+#    方案3: npm install --production --ignore-scripts（跳过，放弃图表功能）
+#
+# Q: Puppeteer 下载 Chromium 失败
+# A: 服务器可能无法访问 Google 存储。解决方案:
+#    set PUPPETEER_SKIP_DOWNLOAD=true
+#    npm install --production
+#    然后手动下载 Chromium 并配置 executablePath
+#
+# Q: 页面能打开但编辑器按钮显示异常
+# A: 检查 hmEditor/、vendor/、fonts/、editorDist/ 目录是否完整复制，
+#    以及 index.js 中的静态资源路径是否正确。
+#
+# Q: 中文显示为方块
+# A: 确认 fontPackage/ 已复制到服务器，且 Windows Server 2019 已安装
+#    中文字体包。可在 "设置 → 时间和语言 → 语言" 中添加中文语言包。
+#
+# =============================================================================
+# 七、版本更新流程
+# =============================================================================
+#
+# 1. 开发机上重新执行 grunt release 构建
+# 2. 将 dev/builder/release/ckeditor/editorDist/ 下文件复制到服务器对应目录
+# 3. 若有 index.js 或 src/ 变更，同步覆盖
+# 4. 若有 package.json 变更:
+#      npm install --production
+# 5. 重启服务:
+#      pm2 restart hmEditor
+#
+# =============================================================================
